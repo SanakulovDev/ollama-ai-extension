@@ -69,13 +69,13 @@ class OllamaClient {
      * Streaming generate — sends each token to onChunk
      * Stream ends when Promise resolves
      */
-    async generateStream(model, prompt, onChunk, signal) {
+    async generateStream(model, prompt, onChunk, signal, options = {}) {
         return new Promise((resolve, reject) => {
             const body = JSON.stringify({
                 model,
                 prompt,
                 stream: true,
-                options: { temperature: 0.3 }
+                options: { temperature: options.temperature ?? 0.3 }
             });
             const url = new URL(this.host + '/api/generate');
             const lib = url.protocol === 'https:' ? https : http;
@@ -119,12 +119,17 @@ class OllamaClient {
         });
     }
     /** Chat with history */
-    async chatStream(model, messages, onChunk, signal) {
+    async chatStream(model, messages, onChunk, signal, options = {}) {
         return new Promise((resolve, reject) => {
-            const body = JSON.stringify({ model, messages, stream: true });
+            const body = JSON.stringify({
+                model,
+                messages,
+                stream: true,
+                options: { temperature: options.temperature ?? 0.3 }
+            });
             const url = new URL(this.host + '/api/chat');
             const lib = url.protocol === 'https:' ? https : http;
-            const req = lib.request({ hostname: url.hostname, port: url.port || 80,
+            const req = lib.request({ hostname: url.hostname, port: url.port || (url.protocol === 'https:' ? 443 : 80),
                 path: url.pathname, method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
             }, res => {
@@ -165,7 +170,7 @@ class OllamaClient {
             const url = new URL(this.host + path);
             const lib = url.protocol === 'https:' ? https : http;
             const data = body ? JSON.stringify(body) : undefined;
-            const req = lib.request({ hostname: url.hostname, port: url.port || 80,
+            const req = lib.request({ hostname: url.hostname, port: url.port || (url.protocol === 'https:' ? 443 : 80),
                 path: url.pathname, method,
                 headers: { 'Content-Type': 'application/json', ...(data ? { 'Content-Length': Buffer.byteLength(data) } : {}) }
             }, res => {

@@ -6,6 +6,9 @@
 
 - **Onboarding wizard** on first launch — guides you through Ollama and LLM installation
 - **Hardware analysis** — recommends suitable models based on RAM and CPU
+- **Installed model switcher** — pick any locally available Ollama model directly from the chat UI
+- **Workspace file mentions** — use `@path/to/file.ts` or the mention picker to add project files into context
+- **Session list UI** — recent chats are visible as a dedicated list instead of a plain dropdown
 - **Unlimited file context** — unlike Continue, no file size limits
 - **Smart context window** — automatically sends code around the cursor
 - **Streaming response** — tokens appear in real-time

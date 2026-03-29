@@ -34,8 +34,8 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ChatViewProvider = void 0;
-const vscode = __importStar(require("vscode"));
 const path = __importStar(require("path"));
+const vscode = __importStar(require("vscode"));
 const fileContext_1 = require("./fileContext");
 class ChatViewProvider {
     constructor(_context, _client, _sessionManager) {
@@ -49,29 +49,10 @@ class ChatViewProvider {
         this._view = webviewView;
         webviewView.webview.options = { enableScripts: true };
         webviewView.webview.html = this._buildHtml();
-        // Load last active session or create new one
-        const activeId = this._sessionManager.getActiveSessionId();
-        if (activeId) {
-            const session = this._sessionManager.getSession(activeId);
-            if (session) {
-                this._history = session.messages;
-                this._currentSessionId = activeId;
-            }
-        }
-        // If no active session, create new one
-        if (!this._currentSessionId) {
-            const newSession = this._sessionManager.createSession();
-            await this._sessionManager.saveSession(newSession);
-            await this._sessionManager.setActiveSessionId(newSession.id);
-            this._currentSessionId = newSession.id;
-        }
-        // Send session list to webview after a short delay to ensure it's ready
+        await this._ensureActiveSession();
         setTimeout(() => {
-            this._post({
-                command: 'sessionList',
-                sessions: this._sessionManager.getAllSessions(),
-                activeId: this._currentSessionId
-            });
+            void this._postSessionState();
+            void this._postModelState();
         }, 100);
         webviewView.webview.onDidReceiveMessage(async (msg) => {
             switch (msg.command) {
@@ -85,25 +66,15 @@ class ChatViewProvider {
                     this._history = [];
                     break;
                 case 'getModel':
-                    this._post({ command: 'modelName', model: this._getModel() });
+                case 'getModels':
+                case 'refreshModels':
+                    await this._postModelState();
+                    break;
+                case 'setModel':
+                    await this._handleSetModel(msg.model);
                     break;
                 case 'pickFiles':
-                    const result = await vscode.window.showOpenDialog({
-                        canSelectMany: true,
-                        openLabel: 'Select Files',
-                        filters: {
-                            'Code Files': ['ts', 'js', 'tsx', 'jsx', 'py', 'java', 'c', 'cpp', 'h', 'cs', 'go', 'rs', 'rb', 'php', 'swift', 'kt'],
-                            'Text Files': ['txt', 'md', 'json', 'yaml', 'yml', 'xml', 'html', 'css', 'scss'],
-                            'All Files': ['*']
-                        }
-                    });
-                    if (result) {
-                        const files = result.map(uri => ({
-                            path: uri.fsPath,
-                            name: uri.fsPath.split('/').pop() || uri.fsPath
-                        }));
-                        this._post({ command: 'filesSelected', files });
-                    }
+                    await this._handlePickFiles();
                     break;
                 case 'newSession':
                     await this._handleNewSession();
@@ -115,94 +86,112 @@ class ChatViewProvider {
                     await this._handleDeleteSession(msg.sessionId);
                     break;
                 case 'getSessions':
-                    this._post({
-                        command: 'sessionList',
-                        sessions: this._sessionManager.getAllSessions(),
-                        activeId: this._currentSessionId
-                    });
+                    await this._postSessionState();
                     break;
                 case 'searchWorkspaceFiles':
-                    const query = msg.query || '';
-                    const files = await this._searchWorkspaceFiles(query);
-                    this._post({ command: 'workspaceFilesResult', files });
+                    this._post({
+                        command: 'workspaceFilesResult',
+                        files: await this._searchWorkspaceFiles(msg.query || '')
+                    });
                     break;
             }
         });
     }
-    /** Open chat with selected code from the editor */
     sendWithContext(prefix) {
-        const sel = (0, fileContext_1.getSelectionContext)();
-        if (!sel) {
+        const selection = (0, fileContext_1.getSelectionContext)();
+        if (!selection) {
             vscode.window.showWarningMessage('Select code first');
             return;
         }
-        const text = `${prefix}\n\`\`\`${sel.language}\n${sel.code}\n\`\`\``;
-        this._view?.webview.postMessage({ command: 'injectMessage', text });
-        this._handleSend(text);
+        const text = `${prefix}\n\`\`\`${selection.language}\n${selection.code}\n\`\`\``;
+        this._post({ command: 'injectMessage', text });
+        void this._handleSend(text);
+    }
+    async _ensureActiveSession() {
+        const activeId = this._sessionManager.getActiveSessionId();
+        if (activeId) {
+            const session = this._sessionManager.getSession(activeId);
+            if (session) {
+                this._history = session.messages;
+                this._currentSessionId = activeId;
+                return;
+            }
+        }
+        const newSession = this._sessionManager.createSession();
+        await this._sessionManager.saveSession(newSession);
+        await this._sessionManager.setActiveSessionId(newSession.id);
+        this._currentSessionId = newSession.id;
+        this._history = [];
     }
     async _handleSend(userText, attachedPaths = []) {
         if (!userText.trim()) {
             return;
         }
-        const model = this._getModel();
-        // Add file context
-        const ctx = (0, fileContext_1.getActiveFileContext)(this._getContextLines());
-        const extraFiles = attachedPaths.length > 0 ? (0, fileContext_1.buildMultiFileContext)(attachedPaths) : '';
-        const prompt = (0, fileContext_1.buildPrompt)(userText, ctx, extraFiles);
+        const prompt = (0, fileContext_1.buildPrompt)(userText, (0, fileContext_1.getActiveFileContext)(this._getContextLines()), attachedPaths.length > 0 ? (0, fileContext_1.buildMultiFileContext)(this._dedupePaths(attachedPaths)) : '');
         this._history.push({ role: 'user', content: prompt });
         this._post({ command: 'userMsg', text: userText });
         this._post({ command: 'thinking' });
         this._abortController = new AbortController();
-        let full = '';
+        let fullResponse = '';
         try {
-            await this._client.chatStream(model, this._history, chunk => {
-                full += chunk;
+            await this._client.chatStream(this._getModel(), this._history, chunk => {
+                fullResponse += chunk;
                 this._post({ command: 'streamChunk', chunk });
-            }, this._abortController.signal);
-            this._history.push({ role: 'assistant', content: full });
+            }, this._abortController.signal, { temperature: this._getTemperature() });
+            this._history.push({ role: 'assistant', content: fullResponse });
             this._post({ command: 'streamDone' });
-            // Auto-save after response
             await this._saveCurrentSession();
         }
         catch (err) {
             if (err?.message?.includes('abort')) {
                 this._post({ command: 'streamDone' });
+                return;
             }
-            else {
-                this._post({ command: 'error', text: 'Could not connect to Ollama. Is Ollama running?' });
-            }
+            this._post({ command: 'error', text: 'Could not connect to Ollama. Is Ollama running?' });
         }
     }
-    _post(msg) {
-        this._view?.webview.postMessage(msg);
+    async _handleSetModel(model) {
+        if (!model) {
+            return;
+        }
+        await vscode.workspace.getConfiguration('ollamaAI').update('model', model, vscode.ConfigurationTarget.Global);
+        await this._postModelState();
     }
-    _getModel() {
-        return vscode.workspace.getConfiguration('ollamaAI').get('model', 'qwen2.5:3b');
-    }
-    _getContextLines() {
-        return vscode.workspace.getConfiguration('ollamaAI').get('contextLines', 150);
+    async _handlePickFiles() {
+        const result = await vscode.window.showOpenDialog({
+            canSelectMany: true,
+            openLabel: 'Select Files',
+            filters: {
+                'Code Files': ['ts', 'js', 'tsx', 'jsx', 'py', 'java', 'c', 'cpp', 'h', 'cs', 'go', 'rs', 'rb', 'php', 'swift', 'kt'],
+                'Text Files': ['txt', 'md', 'json', 'yaml', 'yml', 'xml', 'html', 'css', 'scss'],
+                'All Files': ['*']
+            }
+        });
+        if (!result) {
+            return;
+        }
+        const files = result.map(uri => ({
+            path: uri.fsPath,
+            name: path.basename(uri.fsPath),
+            relativePath: this._toRelativePath(uri)
+        }));
+        this._post({ command: 'filesSelected', files });
     }
     async _handleNewSession() {
-        // Save current session first
         await this._saveCurrentSession();
-        // Create new empty session
         const newSession = this._sessionManager.createSession();
         await this._sessionManager.saveSession(newSession);
         await this._sessionManager.setActiveSessionId(newSession.id);
-        // Clear UI and history
         this._history = [];
         this._currentSessionId = newSession.id;
         this._post({ command: 'clearChat' });
-        this._post({
-            command: 'sessionList',
-            sessions: this._sessionManager.getAllSessions(),
-            activeId: this._currentSessionId
-        });
+        await this._postSessionState();
     }
     async _handleSwitchSession(sessionId) {
-        // Save current session
+        if (!sessionId) {
+            return;
+        }
         await this._saveCurrentSession();
-        // Load target session
         const session = this._sessionManager.getSession(sessionId);
         if (!session) {
             return;
@@ -210,37 +199,27 @@ class ChatViewProvider {
         this._history = session.messages;
         this._currentSessionId = sessionId;
         await this._sessionManager.setActiveSessionId(sessionId);
-        // Reload messages in UI
         this._post({ command: 'loadSession', messages: session.messages });
-        this._post({
-            command: 'sessionList',
-            sessions: this._sessionManager.getAllSessions(),
-            activeId: this._currentSessionId
-        });
+        await this._postSessionState();
     }
     async _handleDeleteSession(sessionId) {
+        if (!sessionId) {
+            return;
+        }
         const session = this._sessionManager.getSession(sessionId);
         if (!session) {
             return;
         }
-        // Confirm deletion
         const choice = await vscode.window.showWarningMessage(`Delete "${session.name}"? This cannot be undone.`, { modal: true }, 'Delete', 'Cancel');
         if (choice !== 'Delete') {
             return;
         }
         await this._sessionManager.deleteSession(sessionId);
-        // If deleting active session, create new one
         if (sessionId === this._currentSessionId) {
             await this._handleNewSession();
+            return;
         }
-        else {
-            // Just refresh session list
-            this._post({
-                command: 'sessionList',
-                sessions: this._sessionManager.getAllSessions(),
-                activeId: this._currentSessionId
-            });
-        }
+        await this._postSessionState();
     }
     async _saveCurrentSession() {
         if (!this._currentSessionId) {
@@ -252,33 +231,64 @@ class ChatViewProvider {
         }
         session.messages = this._history;
         session.lastModifiedAt = Date.now();
-        // Auto-update name from first message
         if (!session.name || session.name.startsWith('Chat ')) {
             session.name = this._sessionManager.generateSessionName(this._history);
         }
         await this._sessionManager.saveSession(session);
+    }
+    async _postSessionState() {
+        this._post({
+            command: 'sessionList',
+            sessions: this._sessionManager.getAllSessions(),
+            activeId: this._currentSessionId
+        });
+    }
+    async _postModelState() {
+        const selectedModel = this._getModel();
+        const [running, installedModels] = await Promise.all([
+            this._client.isRunning(),
+            this._client.listModels()
+        ]);
+        this._post({
+            command: 'modelsList',
+            models: installedModels,
+            selectedModel,
+            running,
+            configuredModelUnavailable: !!selectedModel && !installedModels.includes(selectedModel)
+        });
     }
     async _searchWorkspaceFiles(query) {
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         if (!workspaceFolder) {
             return [];
         }
-        const pattern = query ? `**/*${query}*` : '**/*';
         const exclude = '{**/node_modules/**,**/out/**,**/dist/**,**/.git/**,**/build/**}';
+        const normalizedQuery = query.trim().toLowerCase();
         try {
-            const uris = await vscode.workspace.findFiles(pattern, exclude, 30);
-            const codeExtensions = [
-                '.ts', '.js', '.tsx', '.jsx', '.py', '.java', '.go', '.rs',
-                '.md', '.json', '.yaml', '.yml', '.txt', '.c', '.cpp', '.h',
-                '.cs', '.rb', '.php', '.swift', '.kt', '.html', '.css', '.scss'
-            ];
-            return uris
-                .filter(uri => codeExtensions.some(ext => uri.fsPath.endsWith(ext)))
+            const limit = normalizedQuery ? 400 : 80;
+            const uris = await vscode.workspace.findFiles('**/*', exclude, limit);
+            const files = uris
+                .filter(uri => this._isContextFriendlyFile(uri.fsPath))
                 .map(uri => ({
                 path: uri.fsPath,
                 name: path.basename(uri.fsPath),
-                relativePath: vscode.workspace.asRelativePath(uri)
-            }))
+                relativePath: this._toRelativePath(uri)
+            }));
+            if (!normalizedQuery) {
+                return files
+                    .sort((a, b) => a.relativePath.localeCompare(b.relativePath))
+                    .slice(0, 30);
+            }
+            return files
+                .filter(file => {
+                const rel = file.relativePath.toLowerCase();
+                const name = file.name.toLowerCase();
+                return rel.includes(normalizedQuery) || name.includes(normalizedQuery);
+            })
+                .sort((left, right) => {
+                const score = this._scoreWorkspaceFileMatch(normalizedQuery, left) - this._scoreWorkspaceFileMatch(normalizedQuery, right);
+                return score !== 0 ? score : left.relativePath.localeCompare(right.relativePath);
+            })
                 .slice(0, 30);
         }
         catch (err) {
@@ -286,387 +296,974 @@ class ChatViewProvider {
             return [];
         }
     }
+    _scoreWorkspaceFileMatch(query, file) {
+        const name = file.name.toLowerCase();
+        const rel = file.relativePath.toLowerCase();
+        if (name === query || rel === query) {
+            return 0;
+        }
+        if (name.startsWith(query)) {
+            return 1;
+        }
+        if (rel.startsWith(query)) {
+            return 2;
+        }
+        if (name.includes(query)) {
+            return 3;
+        }
+        if (rel.includes(query)) {
+            return 4;
+        }
+        return 5;
+    }
+    _toRelativePath(uri) {
+        const relative = vscode.workspace.asRelativePath(uri, false);
+        return relative && relative !== uri.fsPath ? relative : path.basename(uri.fsPath);
+    }
+    _isContextFriendlyFile(filePath) {
+        const codeExtensions = [
+            '.ts', '.js', '.tsx', '.jsx', '.py', '.java', '.go', '.rs',
+            '.md', '.json', '.yaml', '.yml', '.txt', '.c', '.cpp', '.h',
+            '.cs', '.rb', '.php', '.swift', '.kt', '.html', '.css', '.scss'
+        ];
+        return codeExtensions.some(ext => filePath.endsWith(ext));
+    }
+    _dedupePaths(paths) {
+        return [...new Set(paths.filter(Boolean))];
+    }
+    _post(message) {
+        this._view?.webview.postMessage(message);
+    }
+    _getModel() {
+        return vscode.workspace.getConfiguration('ollamaAI').get('model', 'qwen2.5:3b');
+    }
+    _getContextLines() {
+        return vscode.workspace.getConfiguration('ollamaAI').get('contextLines', 150);
+    }
+    _getTemperature() {
+        return vscode.workspace.getConfiguration('ollamaAI').get('temperature', 0.3);
+    }
     _buildHtml() {
         return /* html */ `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
   :root {
-    --bg:     var(--vscode-sideBar-background, #252526);
-    --fg:     var(--vscode-foreground, #ccc);
-    --border: var(--vscode-panel-border, #444);
-    --accent: var(--vscode-button-background, #0078d4);
-    --input:  var(--vscode-input-background, #3c3c3c);
-    --user-bg:    rgba(0,120,212,.12);
-    --bot-bg:     var(--vscode-editor-background, #1e1e1e);
+    --bg: var(--vscode-sideBar-background, #1f2329);
+    --panel: color-mix(in srgb, var(--vscode-editor-background, #1e1e1e) 80%, #0f1720 20%);
+    --panel-strong: color-mix(in srgb, var(--vscode-editor-background, #1e1e1e) 65%, #09111b 35%);
+    --fg: var(--vscode-foreground, #d4d4d4);
+    --muted: color-mix(in srgb, var(--fg) 55%, transparent);
+    --border: color-mix(in srgb, var(--vscode-panel-border, #3c3c3c) 85%, #0b1117 15%);
+    --accent: var(--vscode-button-background, #0e7490);
+    --accent-soft: color-mix(in srgb, var(--accent) 16%, transparent);
+    --accent-fg: var(--vscode-button-foreground, #ffffff);
+    --input: var(--vscode-input-background, #252526);
+    --input-border: var(--vscode-input-border, var(--border));
+    --user-bg: color-mix(in srgb, var(--accent) 18%, transparent);
+    --bot-bg: color-mix(in srgb, var(--panel-strong) 88%, #05080c 12%);
+    --success: #4ade80;
+    --warning: #f59e0b;
+    --danger: #f87171;
+    --shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
   }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { background: var(--bg); color: var(--fg); font-family: var(--vscode-font-family); font-size: 12px; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
-  #header { padding: 8px 10px; border-bottom: 1px solid var(--border); font-size: 11px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-  .header-left { display: flex; gap: 6px; align-items: center; flex: 1; }
-  .header-right { font-size: 10px; opacity: .5; }
-  #session-select { flex: 1; max-width: 180px; background: var(--input); color: var(--fg); border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; font-size: 11px; font-family: inherit; }
-  #session-select option { background: var(--input); color: var(--fg); }
-  .btn-icon { background: transparent; border: 1px solid var(--border); color: var(--fg); padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; opacity: 0.6; line-height: 1; }
-  .btn-icon:hover { opacity: 1; background: rgba(255,255,255,0.05); }
-  #msgs { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 10px; }
-  .msg { padding: 8px 10px; border-radius: 6px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
-  .msg-user { background: var(--user-bg); align-self: flex-end; max-width: 85%; }
-  .msg-bot  { background: var(--bot-bg); border: 1px solid var(--border); align-self: flex-start; max-width: 95%; }
-  .msg-bot code { font-family: var(--vscode-editor-font-family); background: rgba(255,255,255,.07); padding: 1px 4px; border-radius: 3px; }
-  .msg-bot pre  { background: rgba(0,0,0,.35); padding: 8px; border-radius: 4px; overflow-x: auto; margin: 6px 0; }
-  .thinking { display: flex; gap: 4px; padding: 10px; }
-  .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); opacity: .4; animation: blink 1.2s infinite; }
-  .dot:nth-child(2) { animation-delay: .2s; }
-  .dot:nth-child(3) { animation-delay: .4s; }
-  @keyframes blink { 0%,80%,100%{opacity:.4} 40%{opacity:1} }
-  #input-area { border-top: 1px solid var(--border); padding: 8px; display: flex; gap: 6px; }
-  textarea { flex: 1; background: var(--input); color: var(--fg); border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; font-family: inherit; font-size: 12px; resize: none; height: 52px; outline: none; }
-  textarea:focus { border-color: var(--accent); }
-  .btn { padding: 6px 10px; border-radius: 4px; border: none; cursor: pointer; font-size: 12px; }
-  .btn-send { background: var(--accent); color: #fff; }
-  .btn-stop { background: rgba(244,71,71,.2); color: #f44747; display: none; }
-  .btn-file { background: transparent; color: var(--fg); opacity: .6; padding: 6px 8px; font-size: 14px; }
-  .btn-file:hover { opacity: 1; }
-  .attached { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 0; }
-  .file-tag { background: rgba(255,255,255,.1); padding: 3px 8px; border-radius: 10px; font-size: 11px; display: flex; align-items: center; gap: 4px; }
-  .file-tag .remove { cursor: pointer; opacity: .6; }
-  .file-tag .remove:hover { opacity: 1; color: #f44747; }
-  .empty { opacity: .4; text-align: center; margin-top: 40px; line-height: 1.7; }
 
-  /* Autocomplete dropdown for @ mentions */
-  .autocomplete-dropdown {
-    position: absolute;
-    background: var(--input);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    max-height: 200px;
-    overflow-y: auto;
-    z-index: 1000;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-    display: none;
-    min-width: 250px;
+  * {
+    box-sizing: border-box;
   }
-  .autocomplete-item {
-    padding: 8px 12px;
-    cursor: pointer;
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background:
+      radial-gradient(circle at top right, rgba(14, 116, 144, 0.12), transparent 28%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 24%),
+      var(--bg);
+    color: var(--fg);
+    font-family: var(--vscode-font-family);
     font-size: 12px;
-    border-bottom: 1px solid rgba(255,255,255,0.05);
+    overflow: hidden;
   }
+
+  #app {
+    height: 100vh;
+    display: grid;
+    grid-template-rows: auto auto minmax(96px, 168px) 1fr auto;
+    gap: 8px;
+    padding: 8px;
+  }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    box-shadow: var(--shadow);
+  }
+
+  #hero {
+    padding: 12px;
+  }
+
+  .hero-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .eyebrow {
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 10px;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+
+  .title {
+    font-size: 16px;
+    font-weight: 700;
+    line-height: 1.2;
+    margin-bottom: 4px;
+  }
+
+  .subtitle {
+    color: var(--muted);
+    line-height: 1.5;
+  }
+
+  .status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    font-size: 11px;
+    white-space: nowrap;
+  }
+
+  .status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+    background: var(--warning);
+    box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.12);
+  }
+
+  .status-dot.online {
+    background: var(--success);
+    box-shadow: 0 0 0 4px rgba(74, 222, 128, 0.12);
+  }
+
+  #toolbar {
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .toolbar-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .toolbar-label {
+    min-width: 36px;
+    color: var(--muted);
+    font-size: 11px;
+  }
+
+  select,
+  textarea,
+  button {
+    font: inherit;
+  }
+
+  .input,
+  textarea {
+    width: 100%;
+    background: var(--input);
+    color: var(--fg);
+    border: 1px solid var(--input-border);
+    border-radius: 10px;
+    outline: none;
+  }
+
+  .input {
+    padding: 8px 10px;
+  }
+
+  .input:focus,
+  textarea:focus {
+    border-color: var(--accent);
+  }
+
+  .btn {
+    border: 1px solid transparent;
+    border-radius: 10px;
+    padding: 8px 10px;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+  }
+
+  .btn:hover {
+    transform: translateY(-1px);
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    color: var(--accent-fg);
+  }
+
+  .btn-secondary {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(255, 255, 255, 0.08);
+    color: var(--fg);
+  }
+
+  .btn-danger {
+    background: rgba(248, 113, 113, 0.12);
+    border-color: rgba(248, 113, 113, 0.18);
+    color: var(--danger);
+  }
+
+  .btn-icon {
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  #session-panel {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .section-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 12px 6px;
+  }
+
+  .section-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+  }
+
+  .section-note {
+    font-size: 10px;
+    color: var(--muted);
+  }
+
+  #session-list {
+    padding: 0 8px 8px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .session-item {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+    text-align: left;
+    padding: 10px;
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 12px;
+    cursor: pointer;
+  }
+
+  .session-item.active {
+    background: linear-gradient(135deg, var(--accent-soft), rgba(255, 255, 255, 0.02));
+    border-color: color-mix(in srgb, var(--accent) 60%, rgba(255, 255, 255, 0.08));
+  }
+
+  .session-item:hover {
+    border-color: rgba(255, 255, 255, 0.14);
+  }
+
+  .session-name {
+    font-weight: 600;
+    line-height: 1.4;
+    margin-bottom: 4px;
+  }
+
+  .session-meta {
+    color: var(--muted);
+    font-size: 10px;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .session-delete {
+    align-self: start;
+    color: var(--muted);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 6px;
+  }
+
+  .session-delete:hover {
+    color: var(--danger);
+    background: rgba(248, 113, 113, 0.12);
+  }
+
+  #msgs {
+    position: relative;
+    overflow-y: auto;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .empty {
+    margin: auto 0;
+    text-align: center;
+    color: var(--muted);
+    line-height: 1.7;
+    padding: 18px 12px;
+    border: 1px dashed rgba(255, 255, 255, 0.08);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.02);
+  }
+
+  .msg {
+    padding: 10px 12px;
+    border-radius: 14px;
+    line-height: 1.55;
+    word-break: break-word;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
+  }
+
+  .msg-user {
+    align-self: flex-end;
+    max-width: 88%;
+    background: linear-gradient(135deg, rgba(14, 116, 144, 0.24), rgba(14, 116, 144, 0.12));
+    border: 1px solid rgba(14, 116, 144, 0.28);
+    white-space: pre-wrap;
+  }
+
+  .msg-bot {
+    align-self: flex-start;
+    max-width: 96%;
+    background: var(--bot-bg);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .msg-error {
+    align-self: stretch;
+    background: rgba(248, 113, 113, 0.12);
+    border: 1px solid rgba(248, 113, 113, 0.22);
+    color: #fecaca;
+    white-space: pre-wrap;
+  }
+
+  .msg-bot code {
+    font-family: var(--vscode-editor-font-family);
+    background: rgba(255, 255, 255, 0.08);
+    padding: 2px 5px;
+    border-radius: 6px;
+  }
+
+  .msg-bot pre {
+    background: rgba(0, 0, 0, 0.32);
+    padding: 10px;
+    border-radius: 10px;
+    overflow-x: auto;
+    margin: 8px 0;
+  }
+
+  .thinking {
+    display: flex;
+    gap: 5px;
+    padding: 4px 0;
+  }
+
+  .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--accent);
+    opacity: 0.4;
+    animation: blink 1.2s infinite;
+  }
+
+  .dot:nth-child(2) {
+    animation-delay: 0.2s;
+  }
+
+  .dot:nth-child(3) {
+    animation-delay: 0.4s;
+  }
+
+  @keyframes blink {
+    0%, 80%, 100% {
+      opacity: 0.35;
+      transform: translateY(0);
+    }
+    40% {
+      opacity: 1;
+      transform: translateY(-2px);
+    }
+  }
+
+  #composer {
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  #attached-files {
+    display: none;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .file-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 100%;
+    padding: 6px 8px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .file-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--fg);
+  }
+
+  .file-remove {
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    padding: 0;
+  }
+
+  .file-remove:hover {
+    color: var(--danger);
+  }
+
+  .composer-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .composer-actions {
+    display: flex;
+    gap: 6px;
+  }
+
+  .composer-hint {
+    color: var(--muted);
+    font-size: 11px;
+  }
+
+  #autocomplete-dropdown {
+    display: none;
+    flex-direction: column;
+    max-height: 180px;
+    overflow-y: auto;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    background: var(--panel-strong);
+  }
+
+  .autocomplete-item {
+    padding: 9px 10px;
+    cursor: pointer;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  }
+
   .autocomplete-item:last-child {
     border-bottom: none;
   }
+
   .autocomplete-item:hover,
   .autocomplete-item.selected {
-    background: rgba(255,255,255,0.1);
+    background: rgba(255, 255, 255, 0.06);
   }
-  .autocomplete-item .file-name {
-    color: var(--fg);
-    font-weight: 500;
+
+  .autocomplete-name {
+    font-weight: 600;
     margin-bottom: 2px;
   }
-  .autocomplete-item .file-path {
-    color: var(--fg);
-    opacity: 0.5;
+
+  .autocomplete-path {
     font-size: 10px;
+    color: var(--muted);
   }
+
   .autocomplete-empty {
-    padding: 8px 12px;
-    font-size: 11px;
-    opacity: 0.5;
+    padding: 10px;
     text-align: center;
+    color: var(--muted);
+  }
+
+  textarea {
+    resize: none;
+    min-height: 76px;
+    max-height: 180px;
+    padding: 10px 12px;
+    line-height: 1.5;
+  }
+
+  .composer-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
   }
 </style>
 </head>
 <body>
-  <div id="header">
-    <div class="header-left">
-      <select id="session-select" onchange="switchSession()">
-        <!-- Populated dynamically -->
-      </select>
-      <button class="btn-icon" onclick="newSession()" title="New chat">+</button>
-      <button class="btn-icon" onclick="deleteCurrentSession()" title="Delete chat">🗑</button>
-    </div>
-    <div class="header-right">
-      <span id="model-label">qwen2.5:3b</span>
-    </div>
-  </div>
+  <div id="app">
+    <section id="hero" class="panel">
+      <div class="hero-top">
+        <div>
+          <div class="eyebrow">Local Workspace Copilot</div>
+          <div class="title">Ollama AI Assistant</div>
+          <div class="subtitle">Installed model tanlang, chatlar orasida yuring va fayllarni <code>@</code> bilan contextga qo‘shing.</div>
+        </div>
+        <div class="status-pill">
+          <span class="status-dot" id="model-status-dot"></span>
+          <span id="model-status-text">Checking Ollama…</span>
+        </div>
+      </div>
+    </section>
 
-  <div id="msgs">
-    <div class="empty" id="empty-state">
-      Write code or ask a question<br>
-      <span style="font-size:11px">File context is added automatically</span>
-    </div>
-  </div>
+    <section id="toolbar" class="panel">
+      <div class="toolbar-row">
+        <span class="toolbar-label">Model</span>
+        <select id="model-select" class="input" onchange="setModel(this.value)"></select>
+        <button class="btn btn-secondary btn-icon" onclick="refreshModels()" title="Refresh models">↻</button>
+      </div>
+      <div class="toolbar-row">
+        <button class="btn btn-primary" onclick="newSession()">New chat</button>
+        <button class="btn btn-secondary" onclick="refreshSessions()">Refresh chats</button>
+      </div>
+    </section>
 
-  <div id="input-area">
-    <button class="btn btn-file" onclick="pickFiles()" title="Attach files">📎</button>
-    <textarea id="input" placeholder="Question or command..." onkeydown="onKey(event)"></textarea>
-    <button class="btn btn-send" id="btn-send" onclick="send()">&#9658;</button>
-    <button class="btn btn-stop" id="btn-stop" onclick="stop()">&#9632;</button>
-  </div>
+    <section id="session-panel" class="panel">
+      <div class="section-head">
+        <div class="section-title">Chat List</div>
+        <div class="section-note" id="session-count">0 chats</div>
+      </div>
+      <div id="session-list"></div>
+    </section>
 
-  <div id="autocomplete-dropdown" class="autocomplete-dropdown"></div>
+    <section id="msgs" class="panel">
+      <div class="empty" id="empty-state">
+        Savol bering, kod yuboring yoki <code>@src/file.ts</code> deb fayl mention qiling.<br>
+        Aktiv editor context avtomatik qo‘shiladi.
+      </div>
+    </section>
+
+    <section id="composer" class="panel">
+      <div id="attached-files"></div>
+      <div class="composer-top">
+        <div class="composer-actions">
+          <button class="btn btn-secondary btn-icon" onclick="openMentionPicker()" title="Mention workspace file">@</button>
+          <button class="btn btn-secondary btn-icon" onclick="pickFiles()" title="Attach files">+</button>
+        </div>
+        <div class="composer-hint">Type <code>@</code> to search project files</div>
+      </div>
+
+      <div id="autocomplete-dropdown"></div>
+
+      <textarea id="input" placeholder="Ask about the current codebase, or mention files with @..." onkeydown="onKey(event)"></textarea>
+
+      <div class="composer-footer">
+        <button class="btn btn-danger" id="btn-stop" onclick="stop()" style="display:none">Stop</button>
+        <button class="btn btn-primary" id="btn-send" onclick="send()">Send</button>
+      </div>
+    </section>
+  </div>
 
 <script>
   const vscode = acquireVsCodeApi();
-  const msgs   = document.getElementById('msgs');
-  const input  = document.getElementById('input');
-  let   botDiv = null;
-  let   botText = '';
-  let   attachedFiles = [];
-  let   sessions = [];
-  let   activeSessionId = null;
-  let   autocompleteFiles = [];
-  let   autocompleteVisible = false;
-  let   autocompleteSelectedIndex = 0;
-  let   currentMentionStart = -1;
-  let   currentMentionQuery = '';
-  let   searchDebounceTimer = null;
+  const msgs = document.getElementById('msgs');
+  const input = document.getElementById('input');
+  const attachedFilesEl = document.getElementById('attached-files');
+  const autocompleteEl = document.getElementById('autocomplete-dropdown');
+  const modelSelectEl = document.getElementById('model-select');
 
-  vscode.postMessage({ command: 'getModel' });
+  let botDiv = null;
+  let botText = '';
+  let attachedFiles = [];
+  let sessions = [];
+  let activeSessionId = null;
+  let autocompleteFiles = [];
+  let autocompleteVisible = false;
+  let autocompleteSelectedIndex = 0;
+  let currentMentionStart = -1;
+  let currentMentionQuery = '';
+  let searchDebounceTimer = null;
+
+  vscode.postMessage({ command: 'getModels' });
   vscode.postMessage({ command: 'getSessions' });
 
-  window.addEventListener('message', e => {
-    const m = e.data;
-    if (m.command === 'modelName')     { document.getElementById('model-label').textContent = m.model; }
-    if (m.command === 'userMsg')       { addMsg(m.text, 'user'); hideEmpty(); }
-    if (m.command === 'thinking')      { showThinking(); setStreaming(true); }
-    if (m.command === 'streamChunk')   { appendBot(m.chunk); }
-    if (m.command === 'streamDone')    { finalizeBot(); setStreaming(false); }
-    if (m.command === 'error')         { addMsg(m.text, 'error'); setStreaming(false); }
-    if (m.command === 'injectMessage') { input.value = m.text; }
-    if (m.command === 'filesSelected') { attachedFiles.push(...m.files); renderAttached(); }
-    if (m.command === 'sessionList') {
-      sessions = m.sessions;
-      activeSessionId = m.activeId;
+  input.addEventListener('input', () => {
+    autoResizeInput();
+    handleTextareaInput();
+  });
+  document.addEventListener('click', handleOutsideClick);
+
+  window.addEventListener('message', event => {
+    const message = event.data;
+
+    if (message.command === 'modelsList') {
+      renderModels(
+        message.models || [],
+        message.selectedModel,
+        !!message.running,
+        !!message.configuredModelUnavailable
+      );
+    }
+
+    if (message.command === 'userMsg') {
+      addMsg(message.text, 'user');
+      hideEmpty();
+    }
+
+    if (message.command === 'thinking') {
+      showThinking();
+      setStreaming(true);
+    }
+
+    if (message.command === 'streamChunk') {
+      appendBot(message.chunk);
+    }
+
+    if (message.command === 'streamDone') {
+      finalizeBot();
+      setStreaming(false);
+    }
+
+    if (message.command === 'error') {
+      addMsg(message.text, 'error');
+      setStreaming(false);
+    }
+
+    if (message.command === 'injectMessage') {
+      input.value = message.text;
+      autoResizeInput();
+    }
+
+    if (message.command === 'filesSelected') {
+      mergeAttachedFiles(message.files || []);
+    }
+
+    if (message.command === 'sessionList') {
+      sessions = message.sessions || [];
+      activeSessionId = message.activeId || null;
       renderSessionList();
     }
-    if (m.command === 'clearChat') {
-      msgs.innerHTML = '<div class="empty" id="empty-state">Write code or ask a question<br><span style="font-size:11px">File context is added automatically</span></div>';
-      botDiv = null; botText = '';
-    }
-    if (m.command === 'loadSession') {
+
+    if (message.command === 'clearChat') {
+      botDiv = null;
+      botText = '';
       msgs.innerHTML = '';
-      for (const msg of m.messages) {
+      renderEmptyState();
+    }
+
+    if (message.command === 'loadSession') {
+      botDiv = null;
+      botText = '';
+      msgs.innerHTML = '';
+      const messages = message.messages || [];
+      if (!messages.length) {
+        renderEmptyState();
+        return;
+      }
+
+      messages.forEach(msg => {
         if (msg.role === 'user') {
-          const userText = extractUserMessage(msg.content);
-          addMsg(userText, 'user');
-        } else if (msg.role === 'assistant') {
+          addMsg(extractUserMessage(msg.content), 'user');
+          return;
+        }
+
+        if (msg.role === 'assistant') {
           addMsg(msg.content, 'bot');
         }
-      }
+      });
+
       hideEmpty();
       msgs.scrollTop = msgs.scrollHeight;
     }
-    if (m.command === 'workspaceFilesResult') {
-      if (m.files && m.files.length > 0) {
-        showAutocomplete(m.files);
-      } else if (autocompleteVisible) {
-        renderAutocomplete();
-      }
+
+    if (message.command === 'workspaceFilesResult') {
+      showAutocomplete(message.files || []);
     }
   });
 
-  function onKey(e) {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      if (!autocompleteVisible) {
-        send();
-      }
-      return;
+  function renderModels(models, selectedModel, isRunning, configuredModelUnavailable) {
+    const installedModels = Array.from(new Set((models || []).filter(Boolean)));
+    const renderableModels = [...installedModels];
+
+    if (configuredModelUnavailable && selectedModel) {
+      renderableModels.unshift(selectedModel);
     }
 
-    if (autocompleteVisible) {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        autocompleteSelectedIndex = Math.min(
-          autocompleteSelectedIndex + 1,
-          autocompleteFiles.length - 1
-        );
-        renderAutocomplete();
-      } else if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        autocompleteSelectedIndex = Math.max(autocompleteSelectedIndex - 1, 0);
-        renderAutocomplete();
-      } else if (e.key === 'Enter') {
-        e.preventDefault();
-        selectAutocompleteItem(autocompleteSelectedIndex);
-      } else if (e.key === 'Escape') {
-        e.preventDefault();
-        hideAutocomplete();
-      }
-    }
-  }
+    modelSelectEl.innerHTML = renderableModels.map(model => {
+      const unavailableSuffix = configuredModelUnavailable && model === selectedModel ? ' (configured)' : '';
+      return \`<option value="\${escapeHtml(model)}">\${escapeHtml(model + unavailableSuffix)}</option>\`;
+    }).join('');
 
-  input.addEventListener('input', handleTextareaInput);
-  document.addEventListener('click', handleOutsideClick);
-
-  function handleTextareaInput(e) {
-    const text = input.value;
-    const cursorPos = input.selectionStart;
-    const beforeCursor = text.substring(0, cursorPos);
-    const atMatch = beforeCursor.match(/@([\\w\\-./]*)$/);
-
-    if (atMatch) {
-      currentMentionStart = cursorPos - atMatch[0].length;
-      currentMentionQuery = atMatch[1];
-
-      clearTimeout(searchDebounceTimer);
-      searchDebounceTimer = setTimeout(() => {
-        vscode.postMessage({
-          command: 'searchWorkspaceFiles',
-          query: currentMentionQuery
-        });
-      }, 300);
+    if (!renderableModels.length) {
+      modelSelectEl.innerHTML = '<option value="">No installed models</option>';
+      modelSelectEl.disabled = true;
     } else {
-      hideAutocomplete();
+      modelSelectEl.disabled = false;
+      modelSelectEl.value = selectedModel || renderableModels[0];
+    }
+
+    const statusDot = document.getElementById('model-status-dot');
+    const statusText = document.getElementById('model-status-text');
+
+    statusDot.classList.toggle('online', isRunning);
+    if (isRunning) {
+      const countLabel = installedModels.length === 1 ? '1 model ready' : installedModels.length + ' models ready';
+      statusText.textContent = countLabel;
+      if (!installedModels.length) {
+        statusText.textContent = 'Ollama running, no models yet';
+      }
+    } else {
+      statusText.textContent = 'Ollama unavailable';
     }
   }
 
-  function handleOutsideClick(e) {
-    if (autocompleteVisible &&
-        !e.target.closest('#input') &&
-        !e.target.closest('#autocomplete-dropdown')) {
-      hideAutocomplete();
-    }
-  }
-
-  function send() {
-    const text = input.value.trim();
-    if (!text) return;
-    input.value = '';
-    input.style.height = '52px';
-    vscode.postMessage({ command: 'send', text, attachedFiles: attachedFiles.map(f => f.path) });
-    attachedFiles = [];
-    renderAttached();
-  }
-
-  function stop() { vscode.postMessage({ command: 'stop' }); }
-
-  function pickFiles() { vscode.postMessage({ command: 'pickFiles' }); }
-
-  function removeFile(index) {
-    attachedFiles.splice(index, 1);
-    renderAttached();
-  }
-
-  function renderAttached() {
-    let container = document.getElementById('attached-files');
-    if (attachedFiles.length === 0) {
-      if (container) container.remove();
+  function setModel(model) {
+    if (!model) {
       return;
     }
-    if (!container) {
-      container = document.createElement('div');
-      container.id = 'attached-files';
-      container.className = 'attached';
-      document.getElementById('input-area').prepend(container);
-    }
-    container.innerHTML = attachedFiles.map((f, i) =>
-      \`<div class="file-tag"><span>\${f.name}</span><span class="remove" onclick="removeFile(\${i})">✕</span></div>\`
-    ).join('');
+    vscode.postMessage({ command: 'setModel', model });
+  }
+
+  function refreshModels() {
+    vscode.postMessage({ command: 'refreshModels' });
+  }
+
+  function refreshSessions() {
+    vscode.postMessage({ command: 'getSessions' });
   }
 
   function renderSessionList() {
-    const select = document.getElementById('session-select');
-    if (!select) return;
+    const list = document.getElementById('session-list');
+    const count = document.getElementById('session-count');
+    const sorted = [...sessions].sort((a, b) => b.lastModifiedAt - a.lastModifiedAt);
 
-    // Sort by lastModifiedAt (newest first)
-    const sorted = sessions.sort((a, b) => b.lastModifiedAt - a.lastModifiedAt);
+    count.textContent = sorted.length === 1 ? '1 chat' : sorted.length + ' chats';
 
-    select.innerHTML = sorted.map(s => {
-      const active = s.id === activeSessionId ? '● ' : '';
-      const count = s.messageCount > 0 ? \` (\${s.messageCount})\` : '';
-      return \`<option value="\${s.id}" \${s.id === activeSessionId ? 'selected' : ''}>
-        \${active}\${s.name}\${count}
-      </option>\`;
-    }).join('');
+    if (!sorted.length) {
+      list.innerHTML = '<div class="autocomplete-empty">No chats yet</div>';
+      return;
+    }
+
+    list.innerHTML = sorted.map(session => \`
+      <div class="session-item \${session.id === activeSessionId ? 'active' : ''}" onclick="switchSession('\${session.id}')">
+        <div>
+          <div class="session-name">\${escapeHtml(session.name || 'New chat')}</div>
+          <div class="session-meta">
+            <span>\${formatSessionDate(session.lastModifiedAt)}</span>
+            <span>\${session.messageCount || 0} msgs</span>
+          </div>
+        </div>
+        <button class="session-delete" onclick="deleteSession(event, '\${session.id}')" title="Delete chat">✕</button>
+      </div>
+    \`).join('');
+  }
+
+  function formatSessionDate(timestamp) {
+    try {
+      return new Date(timestamp).toLocaleString([], {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch {
+      return 'Recent';
+    }
   }
 
   function newSession() {
     vscode.postMessage({ command: 'newSession' });
   }
 
-  function switchSession() {
-    const select = document.getElementById('session-select');
-    const sessionId = select.value;
-    if (sessionId && sessionId !== activeSessionId) {
-      vscode.postMessage({ command: 'switchSession', sessionId });
+  function switchSession(sessionId) {
+    if (!sessionId || sessionId === activeSessionId) {
+      return;
+    }
+    vscode.postMessage({ command: 'switchSession', sessionId });
+  }
+
+  function deleteSession(event, sessionId) {
+    if (event) {
+      event.stopPropagation();
+      event.preventDefault();
+    }
+    vscode.postMessage({ command: 'deleteSession', sessionId });
+  }
+
+  function onKey(event) {
+    if (autocompleteVisible) {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        autocompleteSelectedIndex = Math.min(autocompleteSelectedIndex + 1, autocompleteFiles.length - 1);
+        renderAutocomplete();
+        return;
+      }
+
+      if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        autocompleteSelectedIndex = Math.max(autocompleteSelectedIndex - 1, 0);
+        renderAutocomplete();
+        return;
+      }
+
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        selectAutocompleteItem(autocompleteSelectedIndex);
+        return;
+      }
+
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        hideAutocomplete();
+        return;
+      }
+    }
+
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      send();
     }
   }
 
-  function deleteCurrentSession() {
-    if (activeSessionId) {
-      vscode.postMessage({ command: 'deleteSession', sessionId: activeSessionId });
-    }
+  function autoResizeInput() {
+    input.style.height = '0px';
+    input.style.height = Math.min(input.scrollHeight, 180) + 'px';
   }
 
-  function extractUserMessage(content) {
-    // Extract question after "**Question:**" marker
-    const match = content.match(/\\*\\*Question:\\*\\*\\s*(.+?)$/s);
-    return match ? match[1].trim() : content;
-  }
+  function handleTextareaInput() {
+    const text = input.value;
+    const cursorPos = input.selectionStart || 0;
+    const beforeCursor = text.slice(0, cursorPos);
+    const match = beforeCursor.match(/@([^\\s@]*)$/);
 
-  function showAutocomplete(files) {
-    if (!files || files.length === 0) {
+    if (!match) {
       hideAutocomplete();
       return;
     }
 
-    autocompleteFiles = files;
+    currentMentionStart = cursorPos - match[0].length;
+    currentMentionQuery = match[1];
+
+    clearTimeout(searchDebounceTimer);
+    searchDebounceTimer = setTimeout(() => {
+      vscode.postMessage({ command: 'searchWorkspaceFiles', query: currentMentionQuery });
+    }, 120);
+  }
+
+  function openMentionPicker() {
+    input.focus();
+
+    const start = input.selectionStart || 0;
+    const end = input.selectionEnd || start;
+    const text = input.value;
+
+    if (start === end) {
+      input.value = text.slice(0, start) + '@' + text.slice(end);
+      input.setSelectionRange(start + 1, start + 1);
+    }
+
+    autoResizeInput();
+    currentMentionStart = (input.selectionStart || 1) - 1;
+    currentMentionQuery = '';
+    vscode.postMessage({ command: 'searchWorkspaceFiles', query: '' });
+  }
+
+  function handleOutsideClick(event) {
+    if (!autocompleteVisible) {
+      return;
+    }
+
+    if (!event.target.closest('#autocomplete-dropdown') && event.target !== input) {
+      hideAutocomplete();
+    }
+  }
+
+  function showAutocomplete(files) {
+    autocompleteFiles = files || [];
     autocompleteSelectedIndex = 0;
     autocompleteVisible = true;
-
-    const dropdown = document.getElementById('autocomplete-dropdown');
-    const rect = input.getBoundingClientRect();
-
-    dropdown.style.display = 'block';
-    dropdown.style.top = (rect.bottom + 5) + 'px';
-    dropdown.style.left = rect.left + 'px';
-    dropdown.style.maxWidth = (rect.width - 50) + 'px';
-
+    autocompleteEl.style.display = 'flex';
     renderAutocomplete();
   }
 
   function renderAutocomplete() {
-    const dropdown = document.getElementById('autocomplete-dropdown');
-
-    if (!autocompleteFiles || autocompleteFiles.length === 0) {
-      dropdown.innerHTML = '<div class="autocomplete-empty">No files found</div>';
+    if (!autocompleteVisible) {
+      autocompleteEl.style.display = 'none';
+      autocompleteEl.innerHTML = '';
       return;
     }
 
-    dropdown.innerHTML = autocompleteFiles.map((file, i) => \`
-      <div class="autocomplete-item \${i === autocompleteSelectedIndex ? 'selected' : ''}"
-           onclick="selectAutocompleteItem(\${i})">
-        <div class="file-name">\${escapeHtml(file.name)}</div>
-        <div class="file-path">\${escapeHtml(file.relativePath)}</div>
+    if (!autocompleteFiles.length) {
+      autocompleteEl.innerHTML = '<div class="autocomplete-empty">No matching files</div>';
+      return;
+    }
+
+    autocompleteEl.innerHTML = autocompleteFiles.map((file, index) => \`
+      <div class="autocomplete-item \${index === autocompleteSelectedIndex ? 'selected' : ''}" onclick="selectAutocompleteItem(\${index})">
+        <div class="autocomplete-name">\${escapeHtml(file.name)}</div>
+        <div class="autocomplete-path">\${escapeHtml(file.relativePath)}</div>
       </div>
     \`).join('');
   }
 
   function selectAutocompleteItem(index) {
     const file = autocompleteFiles[index];
-    if (!file) return;
-
-    const text = input.value;
-    const beforeMention = text.substring(0, currentMentionStart);
-    const afterCursor = text.substring(input.selectionStart);
-
-    const newText = beforeMention + '@' + file.name + ' ' + afterCursor;
-    input.value = newText;
-
-    const newCursorPos = currentMentionStart + file.name.length + 2;
-    input.setSelectionRange(newCursorPos, newCursorPos);
-
-    if (!attachedFiles.some(f => f.path === file.path)) {
-      attachedFiles.push({ path: file.path, name: file.name });
-      renderAttached();
+    if (!file) {
+      return;
     }
 
+    const cursorPos = input.selectionStart || 0;
+    const beforeMention = input.value.slice(0, currentMentionStart);
+    const afterMention = input.value.slice(cursorPos);
+    const mention = '@' + file.relativePath + ' ';
+
+    input.value = beforeMention + mention + afterMention;
+    const nextCursor = beforeMention.length + mention.length;
+    input.setSelectionRange(nextCursor, nextCursor);
+
+    mergeAttachedFiles([file]);
     hideAutocomplete();
+    autoResizeInput();
     input.focus();
   }
 
@@ -675,36 +1272,105 @@ class ChatViewProvider {
     autocompleteFiles = [];
     currentMentionStart = -1;
     currentMentionQuery = '';
-    document.getElementById('autocomplete-dropdown').style.display = 'none';
+    autocompleteEl.style.display = 'none';
+    autocompleteEl.innerHTML = '';
   }
 
-  function escapeHtml(text) {
+  function mergeAttachedFiles(files) {
+    (files || []).forEach(file => {
+      if (!attachedFiles.some(existing => existing.path === file.path)) {
+        attachedFiles.push(file);
+      }
+    });
+    renderAttached();
+  }
+
+  function removeFile(index) {
+    attachedFiles.splice(index, 1);
+    renderAttached();
+  }
+
+  function renderAttached() {
+    if (!attachedFiles.length) {
+      attachedFilesEl.style.display = 'none';
+      attachedFilesEl.innerHTML = '';
+      return;
+    }
+
+    attachedFilesEl.style.display = 'flex';
+    attachedFilesEl.innerHTML = attachedFiles.map((file, index) => \`
+      <div class="file-tag">
+        <span class="file-label" title="\${escapeHtml(file.relativePath || file.name)}">\${escapeHtml(file.relativePath || file.name)}</span>
+        <button class="file-remove" onclick="removeFile(\${index})" title="Remove file">✕</button>
+      </div>
+    \`).join('');
+  }
+
+  function send() {
+    const text = input.value.trim();
+    if (!text) {
+      return;
+    }
+
+    vscode.postMessage({
+      command: 'send',
+      text,
+      attachedFiles: attachedFiles.map(file => file.path)
+    });
+
+    input.value = '';
+    attachedFiles = [];
+    renderAttached();
+    hideAutocomplete();
+    autoResizeInput();
+  }
+
+  function stop() {
+    vscode.postMessage({ command: 'stop' });
+  }
+
+  function pickFiles() {
+    vscode.postMessage({ command: 'pickFiles' });
+  }
+
+  function renderEmptyState() {
+    if (document.getElementById('empty-state')) {
+      return;
+    }
+
     const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-  }
-
-  function clearChat() {
-    // Now triggers new session instead
-    newSession();
+    div.id = 'empty-state';
+    div.className = 'empty';
+    div.innerHTML = 'Savol bering, kod yuboring yoki <code>@src/file.ts</code> deb fayl mention qiling.<br>Aktiv editor context avtomatik qo‘shiladi.';
+    msgs.appendChild(div);
   }
 
   function hideEmpty() {
-    const e = document.getElementById('empty-state');
-    if (e) e.remove();
+    const empty = document.getElementById('empty-state');
+    if (empty) {
+      empty.remove();
+    }
   }
 
   function addMsg(text, type) {
     const div = document.createElement('div');
-    div.className = 'msg msg-' + (type === 'user' ? 'user' : 'bot');
-    div.textContent = text;
+    const kind = type === 'user' ? 'user' : type === 'error' ? 'error' : 'bot';
+    div.className = 'msg msg-' + kind;
+
+    if (kind === 'bot') {
+      div.innerHTML = formatMarkdown(text);
+    } else {
+      div.textContent = text;
+    }
+
     msgs.appendChild(div);
     msgs.scrollTop = msgs.scrollHeight;
     return div;
   }
 
   function showThinking() {
-    botDiv  = document.createElement('div');
+    hideEmpty();
+    botDiv = document.createElement('div');
     botDiv.className = 'msg msg-bot';
     botDiv.innerHTML = '<div class="thinking"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>';
     botText = '';
@@ -721,23 +1387,40 @@ class ChatViewProvider {
   }
 
   function finalizeBot() {
-    botDiv  = null;
+    botDiv = null;
     botText = '';
   }
 
-  function setStreaming(on) {
-    document.getElementById('btn-send').style.display = on ? 'none'  : '';
-    document.getElementById('btn-stop').style.display = on ? 'block' : 'none';
-    input.disabled = on;
+  function setStreaming(isStreaming) {
+    document.getElementById('btn-send').style.display = isStreaming ? 'none' : 'inline-flex';
+    document.getElementById('btn-stop').style.display = isStreaming ? 'inline-flex' : 'none';
+    input.disabled = isStreaming;
+  }
+
+  function extractUserMessage(content) {
+    const match = content.match(/\\*\\*Question:\\*\\*\\s*(.+?)$/s);
+    return match ? match[1].trim() : content;
+  }
+
+  function escapeHtml(text) {
+    return String(text)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 
   function formatMarkdown(text) {
-    return text
-      .replace(/\`\`\`(\\w*)?\\n?([\\s\\S]*?)\`\`\`/g, '<pre><code>$2</code></pre>')
-      .replace(/\`([^\`]+)\`/g, '<code>$1</code>')
+    const safe = escapeHtml(text);
+    return safe
+      .replace(/\\\`\\\`\\\`(\\w+)?\\n?([\\s\\S]*?)\\\`\\\`\\\`/g, '<pre><code>$2</code></pre>')
+      .replace(/\\\`([^\\\`]+)\\\`/g, '<code>$1</code>')
       .replace(/\\*\\*(.+?)\\*\\*/g, '<strong>$1</strong>')
       .replace(/\\n/g, '<br>');
   }
+
+  autoResizeInput();
 </script>
 </body>
 </html>`;

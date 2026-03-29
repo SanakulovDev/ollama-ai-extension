@@ -87,7 +87,7 @@ export function getFullFileContext(maxChars = 80_000): ContextResult | null {
 export function buildPrompt(userMessage: string, ctx: ContextResult | null, extraFiles: string = ''): string {
   if (!ctx) { return userMessage; }
 
-  const fileLabel = path.basename(ctx.fileName);
+  const fileLabel = vscode.workspace.asRelativePath(ctx.fileName, false) || path.basename(ctx.fileName);
   let prompt = `You are an experienced ${ctx.language} developer. Answer in the context of the following code.
 
 **File:** ${fileLabel}
@@ -141,11 +141,11 @@ export function buildMultiFileContext(filePaths: string[]): string {
         content = first + '\n\n// ... (middle section truncated) ...\n\n' + last;
       }
 
-      const fileName = path.basename(filePath);
+      const fileName = vscode.workspace.asRelativePath(filePath, false) || path.basename(filePath);
       const ext = path.extname(filePath).slice(1);
       blocks.push(`**${fileName}**\n\`\`\`${ext}\n${content}\n\`\`\``);
     } catch (err) {
-      const fileName = path.basename(filePath);
+      const fileName = vscode.workspace.asRelativePath(filePath, false) || path.basename(filePath);
       blocks.push(`**${fileName}**\n_(Could not read file)_`);
     }
   }

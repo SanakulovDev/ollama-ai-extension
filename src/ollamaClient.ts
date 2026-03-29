@@ -12,6 +12,10 @@ export interface OllamaStreamChunk {
   done:     boolean;
 }
 
+export interface OllamaRequestOptions {
+  temperature?: number;
+}
+
 export class OllamaClient {
   private host: string;
 
@@ -53,14 +57,15 @@ export class OllamaClient {
     model:   string,
     prompt:  string,
     onChunk: (text: string) => void,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    options: OllamaRequestOptions = {}
   ): Promise<void> {
     return new Promise((resolve, reject) => {
       const body = JSON.stringify({
         model,
         prompt,
         stream: true,
-        options: { temperature: 0.3 }
+        options: { temperature: options.temperature ?? 0.3 }
       });
 
       const url  = new URL(this.host + '/api/generate');
@@ -110,15 +115,21 @@ export class OllamaClient {
     model:    string,
     messages: OllamaMessage[],
     onChunk:  (text: string) => void,
-    signal?:  AbortSignal
+    signal?:  AbortSignal,
+    options:  OllamaRequestOptions = {}
   ): Promise<void> {
     return new Promise((resolve, reject) => {
-      const body = JSON.stringify({ model, messages, stream: true });
+      const body = JSON.stringify({
+        model,
+        messages,
+        stream: true,
+        options: { temperature: options.temperature ?? 0.3 }
+      });
       const url  = new URL(this.host + '/api/chat');
       const lib  = url.protocol === 'https:' ? https : http;
 
       const req = lib.request(
-        { hostname: url.hostname, port: url.port || 80,
+        { hostname: url.hostname, port: url.port || (url.protocol === 'https:' ? 443 : 80),
           path: url.pathname, method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
         },
@@ -156,7 +167,7 @@ export class OllamaClient {
       const data = body ? JSON.stringify(body) : undefined;
 
       const req = lib.request(
-        { hostname: url.hostname, port: url.port || 80,
+        { hostname: url.hostname, port: url.port || (url.protocol === 'https:' ? 443 : 80),
           path: url.pathname, method,
           headers: { 'Content-Type': 'application/json', ...(data ? { 'Content-Length': Buffer.byteLength(data) } : {}) }
         },
