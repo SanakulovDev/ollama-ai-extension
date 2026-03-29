@@ -39,12 +39,15 @@ const vscode = __importStar(require("vscode"));
 const ollamaClient_1 = require("./ollamaClient");
 const onboardingPanel_1 = require("./onboardingPanel");
 const chatPanel_1 = require("./chatPanel");
+const sessionManager_1 = require("./sessionManager");
 async function activate(context) {
     const config = vscode.workspace.getConfiguration('ollamaAI');
     const host = config.get('host', 'http://localhost:11434');
     const client = new ollamaClient_1.OllamaClient(host);
+    // Create session manager
+    const sessionManager = new sessionManager_1.SessionManager(context);
     // Register sidebar chat provider
-    const chatProvider = new chatPanel_1.ChatViewProvider(context, client);
+    const chatProvider = new chatPanel_1.ChatViewProvider(context, client, sessionManager);
     context.subscriptions.push(vscode.window.registerWebviewViewProvider(chatPanel_1.ChatViewProvider.viewType, chatProvider));
     // Show onboarding on first launch
     const hasSetup = context.globalState.get('ollamaAI.setupDone', false);

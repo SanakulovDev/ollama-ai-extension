@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { OllamaClient } from './ollamaClient';
 import { OnboardingPanel } from './onboardingPanel';
 import { ChatViewProvider } from './chatPanel';
+import { SessionManager } from './sessionManager';
 
 export async function activate(context: vscode.ExtensionContext) {
 
@@ -9,8 +10,11 @@ export async function activate(context: vscode.ExtensionContext) {
   const host   = config.get<string>('host', 'http://localhost:11434');
   const client = new OllamaClient(host);
 
+  // Create session manager
+  const sessionManager = new SessionManager(context);
+
   // Register sidebar chat provider
-  const chatProvider = new ChatViewProvider(context, client);
+  const chatProvider = new ChatViewProvider(context, client, sessionManager);
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(ChatViewProvider.viewType, chatProvider)
   );
