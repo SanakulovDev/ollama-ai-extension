@@ -22,7 +22,7 @@
 - After code changes, run the most relevant verification commands.
 
 ## Verification commands
-- Dev: `npm run complete`
+- Dev: `npm run compile`
 - Build: `vsce package && code --install-extension ollama-ai-assistant-1.0.0.vsix`
 - Test: `npm test`
 - Lint: `npm run lint`

@@ -85,11 +85,28 @@ export function getFullFileContext(maxChars = 80_000): ContextResult | null {
 
 /** Formatted context for prompt */
 export function buildPrompt(userMessage: string, ctx: ContextResult | null, extraFiles: string = ''): string {
-  if (!ctx) { return userMessage; }
+  const editInstructions = `If the user asks you to create or update project files, include one or more blocks in this exact format:
 
-  const fileLabel = vscode.workspace.asRelativePath(ctx.fileName, false) || path.basename(ctx.fileName);
-  let prompt = `You are an experienced ${ctx.language} developer. Answer in the context of the following code. Unless the user asks otherwise, respond in English.
+\`\`\`file:relative/path/to/file.ext
+full file contents here
+\`\`\`
 
+Use workspace-relative paths, include the complete final contents for each file, and do not use diff syntax. After the file block(s), add a short explanation.`;
+
+  if (!ctx && !extraFiles) {
+    return `${userMessage}\n\n${editInstructions}`;
+  }
+
+  const contextIntro = ctx
+    ? `You are an experienced ${ctx.language} developer. Answer in the context of the following code. Unless the user asks otherwise, respond in English.`
+    : `You are an experienced developer. Unless the user asks otherwise, respond in English.`;
+
+  let prompt = `${contextIntro}
+`;
+
+  if (ctx) {
+    const fileLabel = vscode.workspace.asRelativePath(ctx.fileName, false) || path.basename(ctx.fileName);
+    prompt += `
 **File:** ${fileLabel}
 **Language:** ${ctx.language}
 **Total lines:** ${ctx.totalLines}
@@ -98,6 +115,7 @@ export function buildPrompt(userMessage: string, ctx: ContextResult | null, extr
 ${ctx.code}
 \`\`\`
 `;
+  }
 
   if (extraFiles) {
     prompt += `\n**Additional files:**\n${extraFiles}\n`;
@@ -105,7 +123,9 @@ ${ctx.code}
 
   prompt += `**Question:** ${userMessage}
 
-Keep your answer clear and concise. Use \`\`\` tags for code examples.`;
+Keep your answer clear and concise. Use \`\`\` tags for code examples.
+
+${editInstructions}`;
 
   return prompt;
 }

@@ -10,6 +10,11 @@ interface WorkspaceFileResult {
   relativePath: string;
 }
 
+interface AssistantFileEdit {
+  relativePath: string;
+  content: string;
+}
+
 export class ChatViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'ollamaAI.chatView';
 
@@ -76,6 +81,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             files: await this._searchWorkspaceFiles(msg.query || '')
           });
           break;
+        case 'applyAssistantEdits':
+          await this._handleApplyAssistantEdits(msg.text);
+          break;
       }
     });
   }
@@ -83,7 +91,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   public sendWithContext(prefix: string) {
     const selection = getSelectionContext();
     if (!selection) {
-      vscode.window.showWarningMessage('Avval kodni belgilang');
+      vscode.window.showWarningMessage('Select some code first.');
       return;
     }
 
@@ -256,6 +264,92 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     await this._postSessionState();
   }
 
+  private async _handleApplyAssistantEdits(responseText: string | undefined) {
+    if (!responseText?.trim()) {
+      vscode.window.showWarningMessage('No file changes were found to apply.');
+      return;
+    }
+
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    if (!workspaceFolder) {
+      vscode.window.showWarningMessage('Open a workspace folder before applying file changes.');
+      return;
+    }
+
+    const edits = this._extractAssistantFileEdits(responseText);
+    if (!edits.length) {
+      vscode.window.showWarningMessage('No file changes were found to apply.');
+      return;
+    }
+
+    const invalidPaths: string[] = [];
+
+    const resolvedEdits = edits
+      .map(edit => {
+        const normalizedPath = this._normalizeAssistantRelativePath(edit.relativePath);
+        if (!normalizedPath) {
+          invalidPaths.push(edit.relativePath);
+          return null;
+        }
+
+        const absolutePath = path.resolve(workspaceFolder.uri.fsPath, normalizedPath);
+        const relativeToRoot = path.relative(workspaceFolder.uri.fsPath, absolutePath);
+
+        if (relativeToRoot.startsWith('..') || path.isAbsolute(relativeToRoot)) {
+          invalidPaths.push(edit.relativePath);
+          return null;
+        }
+
+        return {
+          relativePath: relativeToRoot.split(path.sep).join('/'),
+          uri: vscode.Uri.file(absolutePath),
+          content: edit.content
+        };
+      })
+      .filter((edit): edit is { relativePath: string; uri: vscode.Uri; content: string } => !!edit);
+
+    if (!resolvedEdits.length) {
+      vscode.window.showErrorMessage('Generated file paths were invalid. No changes were applied.');
+      return;
+    }
+
+    if (invalidPaths.length) {
+      vscode.window.showErrorMessage(`Some generated paths were invalid: ${invalidPaths.join(', ')}`);
+      return;
+    }
+
+    const dirtyFiles = vscode.workspace.textDocuments
+      .filter(doc => doc.isDirty && resolvedEdits.some(edit => edit.uri.fsPath === doc.uri.fsPath))
+      .map(doc => vscode.workspace.asRelativePath(doc.uri, false));
+
+    if (dirtyFiles.length) {
+      vscode.window.showWarningMessage(`Save your current changes before applying AI edits to: ${dirtyFiles.join(', ')}`);
+      return;
+    }
+
+    try {
+      for (const edit of resolvedEdits) {
+        await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(edit.uri.fsPath)));
+        await vscode.workspace.fs.writeFile(edit.uri, Buffer.from(edit.content, 'utf8'));
+      }
+
+      const firstDocument = await vscode.workspace.openTextDocument(resolvedEdits[0].uri);
+      await vscode.window.showTextDocument(firstDocument, { preview: false });
+
+      const summary = resolvedEdits
+        .slice(0, 3)
+        .map(edit => edit.relativePath)
+        .join(', ');
+      const suffix = resolvedEdits.length > 3 ? ', ...' : '';
+      const countLabel = resolvedEdits.length === 1 ? 'file' : 'files';
+
+      vscode.window.showInformationMessage(`Applied changes to ${resolvedEdits.length} ${countLabel}: ${summary}${suffix}`);
+    } catch (err) {
+      console.error('Failed to apply assistant edits:', err);
+      vscode.window.showErrorMessage('Could not apply the generated file changes.');
+    }
+  }
+
   private async _saveCurrentSession() {
     if (!this._currentSessionId) {
       return;
@@ -382,6 +476,36 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
   private _dedupePaths(paths: string[]): string[] {
     return [...new Set(paths.filter(Boolean))];
+  }
+
+  private _extractAssistantFileEdits(responseText: string): AssistantFileEdit[] {
+    const edits = new Map<string, AssistantFileEdit>();
+    const regex = /```file:([^\r\n`]+)\r?\n([\s\S]*?)```/g;
+    let match: RegExpExecArray | null;
+
+    while ((match = regex.exec(responseText)) !== null) {
+      const relativePath = match[1].trim();
+      if (!relativePath) {
+        continue;
+      }
+
+      edits.set(relativePath, {
+        relativePath,
+        content: match[2].replace(/\r\n/g, '\n')
+      });
+    }
+
+    return [...edits.values()];
+  }
+
+  private _normalizeAssistantRelativePath(relativePath: string): string | null {
+    const normalized = relativePath
+      .trim()
+      .replace(/^['"]+|['"]+$/g, '')
+      .replace(/\\/g, '/')
+      .replace(/^\.\//, '');
+
+    return normalized || null;
   }
 
   private _post(message: object) {
@@ -609,6 +733,39 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     margin: 8px 0;
   }
 
+  .code-file-label {
+    display: inline-flex;
+    align-items: center;
+    margin-top: 8px;
+    padding: 4px 8px;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    color: var(--fg);
+    font-size: 11px;
+  }
+
+  .bot-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .bot-action-summary {
+    flex: 1;
+    min-width: 0;
+    color: var(--muted);
+    font-size: 11px;
+  }
+
+  .bot-action-button {
+    white-space: nowrap;
+  }
+
   .thinking {
     display: flex;
     gap: 5px;
@@ -746,10 +903,24 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     line-height: 1.5;
   }
 
-  .composer-footer {
+  .composer-input-row {
     display: flex;
-    justify-content: flex-end;
     gap: 8px;
+  }
+
+  .composer-input-row textarea {
+    width: auto;
+    flex: 1;
+  }
+
+  .composer-submit {
+    width: 92px;
+    display: flex;
+  }
+
+  .composer-submit .btn {
+    width: 100%;
+    min-height: 76px;
   }
 
   .grow {
@@ -792,11 +963,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
       <div id="autocomplete-dropdown"></div>
 
-      <textarea id="input" placeholder="Ask about the codebase or mention files with @..." onkeydown="onKey(event)"></textarea>
-
-      <div class="composer-footer">
-        <button class="btn btn-danger" id="btn-stop" onclick="stop()" style="display:none">Stop</button>
-        <button class="btn btn-primary" id="btn-send" onclick="send()">Send</button>
+      <div class="composer-input-row">
+        <textarea id="input" placeholder="Ask about the codebase or mention files with @..." onkeydown="onKey(event)"></textarea>
+        <div class="composer-submit">
+          <button class="btn btn-danger" id="btn-stop" onclick="stop()" style="display:none">Stop</button>
+          <button class="btn btn-primary" id="btn-send" onclick="send()">Send</button>
+        </div>
       </div>
     </section>
   </div>
@@ -1235,6 +1407,58 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
+  function extractFileEdits(text) {
+    const edits = [];
+    const regex = /\\\`\\\`\\\`file:([^\\r\\n\\\`]+)\\r?\\n([\\s\\S]*?)\\\`\\\`\\\`/g;
+    let match;
+
+    while ((match = regex.exec(text)) !== null) {
+      edits.push({
+        relativePath: match[1].trim(),
+        content: match[2]
+      });
+    }
+
+    return edits;
+  }
+
+  function enhanceAssistantMessage(div, text) {
+    div._assistantText = text;
+
+    const existingActions = div.querySelector('.bot-actions');
+    if (existingActions) {
+      existingActions.remove();
+    }
+
+    const edits = extractFileEdits(text);
+    if (!edits.length) {
+      return;
+    }
+
+    const summary = edits.length === 1
+      ? 'Ready to apply changes to ' + edits[0].relativePath
+      : 'Ready to apply changes to ' + edits.slice(0, 2).map(edit => edit.relativePath).join(', ')
+        + (edits.length > 2 ? ' +' + (edits.length - 2) + ' more' : '');
+
+    const actions = document.createElement('div');
+    actions.className = 'bot-actions';
+
+    const summaryEl = document.createElement('div');
+    summaryEl.className = 'bot-action-summary';
+    summaryEl.textContent = summary;
+
+    const applyButton = document.createElement('button');
+    applyButton.className = 'btn btn-secondary bot-action-button';
+    applyButton.textContent = edits.length === 1 ? 'Apply file change' : 'Apply file changes';
+    applyButton.addEventListener('click', () => {
+      vscode.postMessage({ command: 'applyAssistantEdits', text: div._assistantText || text });
+    });
+
+    actions.appendChild(summaryEl);
+    actions.appendChild(applyButton);
+    div.appendChild(actions);
+  }
+
   function addMsg(text, type) {
     const div = document.createElement('div');
     const kind = type === 'user' ? 'user' : type === 'error' ? 'error' : 'bot';
@@ -1242,6 +1466,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
     if (kind === 'bot') {
       div.innerHTML = formatMarkdown(text);
+      enhanceAssistantMessage(div, text);
     } else {
       div.textContent = text;
     }
@@ -1270,6 +1495,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   function finalizeBot() {
+    if (botDiv) {
+      botDiv.innerHTML = formatMarkdown(botText);
+      enhanceAssistantMessage(botDiv, botText);
+    }
+
     botDiv = null;
     botText = '';
   }
@@ -1297,7 +1527,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   function formatMarkdown(text) {
     const safe = escapeHtml(text);
     return safe
-      .replace(/\\\`\\\`\\\`(\\w+)?\\n?([\\s\\S]*?)\\\`\\\`\\\`/g, '<pre><code>$2</code></pre>')
+      .replace(/\\\`\\\`\\\`([^\\n\\\`]*)\\n?([\\s\\S]*?)\\\`\\\`\\\`/g, (_, info, code) => {
+        const header = String(info || '').trim();
+        const fileLabel = header.startsWith('file:')
+          ? '<div class="code-file-label">' + header.slice(5).trim() + '</div>'
+          : '';
+        return fileLabel + '<pre><code>' + code + '</code></pre>';
+      })
       .replace(/\\\`([^\\\`]+)\\\`/g, '<code>$1</code>')
       .replace(/\\*\\*(.+?)\\*\\*/g, '<strong>$1</strong>')
       .replace(/\\n/g, '<br>');
