@@ -1,0 +1,60 @@
+{
+  "name": "ollama-ai-assistant",
+  "displayName": "Ollama AI Assistant",
+  "description": "Local AI assistant powered by Ollama — 100% offline, no data leaks",
+  "version": "1.0.0",
+  "publisher": "your-name",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["AI", "Other"],
+  "icon": "media/icon.png",
+  "repository": { "type": "git", "url": "https://github.com/your-name/ollama-ai-assistant" },
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      { "command": "ollamaAI.openChat",    "title": "Ollama: Chatni ochish" },
+      { "command": "ollamaAI.setup",       "title": "Ollama: Sozlash wizardini ochish" },
+      { "command": "ollamaAI.explainCode", "title": "Ollama: Kodni tushuntir",  "when": "editorHasSelection" },
+      { "command": "ollamaAI.fixCode",     "title": "Ollama: Kodni tuzat",      "when": "editorHasSelection" },
+      { "command": "ollamaAI.generateDoc", "title": "Ollama: Dokumentatsiya yaz","when": "editorHasSelection" }
+    ],
+    "menus": {
+      "editor/context": [
+        { "command": "ollamaAI.explainCode", "when": "editorHasSelection", "group": "ollama@1" },
+        { "command": "ollamaAI.fixCode",     "when": "editorHasSelection", "group": "ollama@2" },
+        { "command": "ollamaAI.generateDoc", "when": "editorHasSelection", "group": "ollama@3" }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        { "id": "ollama-sidebar", "title": "Ollama AI", "icon": "$(hubot)" }
+      ]
+    },
+    "views": {
+      "ollama-sidebar": [
+        { "type": "webview", "id": "ollamaAI.chatView", "name": "AI Chat" }
+      ]
+    },
+    "configuration": {
+      "title": "Ollama AI Assistant",
+      "properties": {
+        "ollamaAI.host":         { "type": "string",  "default": "http://localhost:11434", "description": "Ollama server manzili" },
+        "ollamaAI.model":        { "type": "string",  "default": "qwen2.5:3b",             "description": "Tanlangan model" },
+        "ollamaAI.contextLines": { "type": "number",  "default": 150,                      "description": "Kursor atrofidagi qatorlar soni" },
+        "ollamaAI.temperature":  { "type": "number",  "default": 0.3,                      "description": "Model harorati (0-1)" },
+        "ollamaAI.streamResponse":{ "type": "boolean", "default": true,                    "description": "Real-vaqt stream javob" }
+      }
+    }
+  },
+  "scripts": {
+    "compile":  "tsc -p ./",
+    "watch":    "tsc -watch -p ./",
+    "package":  "vsce package",
+    "install-deps": "npm install"
+  },
+  "devDependencies": {
+    "@types/node":   "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "typescript":    "^5.0.0"
+  }
+}

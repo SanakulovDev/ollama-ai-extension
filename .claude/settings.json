@@ -1,0 +1,25 @@
+{
+  "allowedTools": [
+    "Read",
+    "Edit",
+    "Write",
+    "Glob",
+    "Grep",
+    "LS",
+    "Bash"
+  ],
+  "model": "claude-sonnet-4-5",
+  "dangerousMode": false,
+  "project": {
+    "ide": "vscode",
+    "providers": [
+      "claude"
+    ],
+    "roles": [
+      "plan",
+      "review",
+      "test",
+      "code"
+    ]
+  }
+}

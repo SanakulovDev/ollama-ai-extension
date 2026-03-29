@@ -1,0 +1,13 @@
+{
+  "allowedTools": [
+    "Read",
+    "Edit",
+    "Write",
+    "Glob",
+    "Grep",
+    "LS",
+    "Bash"
+  ],
+  "dangerousMode": true,
+  "note": "Rename to settings.local.json for local-only overrides. Keep it out of git."
+}

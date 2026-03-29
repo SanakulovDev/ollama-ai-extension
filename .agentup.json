@@ -1,0 +1,44 @@
+{
+  "$schema": "https://agentup.dev/schema/agentup.json",
+  "generatedAt": "2026-03-29T06:25:42.440Z",
+  "providers": [
+    "claude"
+  ],
+  "ide": "vscode",
+  "roles": [
+    "plan",
+    "review",
+    "test",
+    "code"
+  ],
+  "contentMode": "template",
+  "project": {
+    "name": "Ollama ai text",
+    "description": "What does this project do?",
+    "dockerEnabled": false,
+    "database": {
+      "engine": "none",
+      "version": ""
+    },
+    "databaseVersion": "",
+    "stack": [
+      "Node.js",
+      "TypeScript",
+      "typescript",
+      "React",
+      "no-docker"
+    ],
+    "repoType": "node",
+    "language": "typescript",
+    "languageVersion": "5.8",
+    "packageManager": "npm",
+    "framework": "React",
+    "devCommand": "npm run dev",
+    "buildCommand": "npm run build",
+    "testCommand": "npm test",
+    "lintCommand": "npm run lint",
+    "deploy": {
+      "docker": false
+    }
+  }
+}
