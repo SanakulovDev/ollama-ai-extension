@@ -83,7 +83,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   public sendWithContext(prefix: string) {
     const selection = getSelectionContext();
     if (!selection) {
-      vscode.window.showWarningMessage('Select code first');
+      vscode.window.showWarningMessage('Avval kodni belgilang');
       return;
     }
 
@@ -269,7 +269,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     session.messages = this._history;
     session.lastModifiedAt = Date.now();
 
-    if (!session.name || session.name.startsWith('Chat ')) {
+    if (!session.name || session.name.startsWith('Chat ') || session.name.startsWith('Suhbat ')) {
       session.name = this._sessionManager.generateSessionName(this._history);
     }
 
@@ -409,22 +409,21 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 <style>
   :root {
     --bg: var(--vscode-sideBar-background, #1f2329);
-    --panel: color-mix(in srgb, var(--vscode-editor-background, #1e1e1e) 80%, #0f1720 20%);
-    --panel-strong: color-mix(in srgb, var(--vscode-editor-background, #1e1e1e) 65%, #09111b 35%);
+    --panel: var(--vscode-editor-background, #1e1e1e);
+    --panel-strong: var(--vscode-input-background, #252526);
     --fg: var(--vscode-foreground, #d4d4d4);
     --muted: color-mix(in srgb, var(--fg) 55%, transparent);
-    --border: color-mix(in srgb, var(--vscode-panel-border, #3c3c3c) 85%, #0b1117 15%);
-    --accent: var(--vscode-button-background, #0e7490);
+    --border: var(--vscode-panel-border, #3c3c3c);
+    --accent: var(--vscode-button-background, #0078d4);
     --accent-soft: color-mix(in srgb, var(--accent) 16%, transparent);
     --accent-fg: var(--vscode-button-foreground, #ffffff);
     --input: var(--vscode-input-background, #252526);
     --input-border: var(--vscode-input-border, var(--border));
     --user-bg: color-mix(in srgb, var(--accent) 18%, transparent);
-    --bot-bg: color-mix(in srgb, var(--panel-strong) 88%, #05080c 12%);
+    --bot-bg: var(--panel-strong);
     --success: #4ade80;
     --warning: #f59e0b;
     --danger: #f87171;
-    --shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
   }
 
   * {
@@ -434,10 +433,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   body {
     margin: 0;
     min-height: 100vh;
-    background:
-      radial-gradient(circle at top right, rgba(14, 116, 144, 0.12), transparent 28%),
-      linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 24%),
-      var(--bg);
+    background: var(--bg);
     color: var(--fg);
     font-family: var(--vscode-font-family);
     font-size: 12px;
@@ -447,7 +443,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   #app {
     height: 100vh;
     display: grid;
-    grid-template-rows: auto auto minmax(96px, 168px) 1fr auto;
+    grid-template-rows: auto 1fr auto;
     gap: 8px;
     padding: 8px;
   }
@@ -455,51 +451,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   .panel {
     background: var(--panel);
     border: 1px solid var(--border);
-    border-radius: 14px;
-    box-shadow: var(--shadow);
-  }
-
-  #hero {
-    padding: 12px;
-  }
-
-  .hero-top {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 8px;
-  }
-
-  .eyebrow {
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    font-size: 10px;
-    color: var(--muted);
-    margin-bottom: 6px;
-  }
-
-  .title {
-    font-size: 16px;
-    font-weight: 700;
-    line-height: 1.2;
-    margin-bottom: 4px;
-  }
-
-  .subtitle {
-    color: var(--muted);
-    line-height: 1.5;
-  }
-
-  .status-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 6px 10px;
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    font-size: 11px;
-    white-space: nowrap;
+    border-radius: 10px;
   }
 
   .status-dot {
@@ -515,21 +467,20 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     box-shadow: 0 0 0 4px rgba(74, 222, 128, 0.12);
   }
 
-  #toolbar {
-    padding: 10px 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
+  #topbar {
+    padding: 10px;
   }
 
-  .toolbar-row {
+  .control-row {
     display: flex;
     gap: 8px;
     align-items: center;
   }
 
-  .toolbar-label {
-    min-width: 36px;
+  .status-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     color: var(--muted);
     font-size: 11px;
   }
@@ -561,14 +512,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
   .btn {
     border: 1px solid transparent;
-    border-radius: 10px;
+    border-radius: 8px;
     padding: 8px 10px;
     cursor: pointer;
-    transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
-  }
-
-  .btn:hover {
-    transform: translateY(-1px);
+    transition: background 0.15s ease, border-color 0.15s ease;
   }
 
   .btn-primary {
@@ -597,90 +544,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     justify-content: center;
   }
 
-  #session-panel {
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-  }
-
-  .section-head {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 10px 12px 6px;
-  }
-
-  .section-title {
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--muted);
-  }
-
-  .section-note {
-    font-size: 10px;
-    color: var(--muted);
-  }
-
-  #session-list {
-    padding: 0 8px 8px;
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-
-  .session-item {
-    width: 100%;
-    display: grid;
-    grid-template-columns: 1fr auto;
-    gap: 8px;
-    text-align: left;
-    padding: 10px;
-    background: transparent;
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    border-radius: 12px;
-    cursor: pointer;
-  }
-
-  .session-item.active {
-    background: linear-gradient(135deg, var(--accent-soft), rgba(255, 255, 255, 0.02));
-    border-color: color-mix(in srgb, var(--accent) 60%, rgba(255, 255, 255, 0.08));
-  }
-
-  .session-item:hover {
-    border-color: rgba(255, 255, 255, 0.14);
-  }
-
-  .session-name {
-    font-weight: 600;
-    line-height: 1.4;
-    margin-bottom: 4px;
-  }
-
-  .session-meta {
-    color: var(--muted);
-    font-size: 10px;
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-
-  .session-delete {
-    align-self: start;
-    color: var(--muted);
-    background: transparent;
-    border: none;
-    cursor: pointer;
-    padding: 2px 4px;
-    border-radius: 6px;
-  }
-
-  .session-delete:hover {
-    color: var(--danger);
-    background: rgba(248, 113, 113, 0.12);
-  }
-
   #msgs {
     position: relative;
     overflow-y: auto;
@@ -703,10 +566,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
   .msg {
     padding: 10px 12px;
-    border-radius: 14px;
+    border-radius: 10px;
     line-height: 1.55;
     word-break: break-word;
-    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
   }
 
   .msg-user {
@@ -826,7 +688,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
   .composer-top {
     display: flex;
-    justify-content: space-between;
     align-items: center;
     gap: 8px;
   }
@@ -834,11 +695,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   .composer-actions {
     display: flex;
     gap: 6px;
-  }
-
-  .composer-hint {
-    color: var(--muted);
-    font-size: 11px;
   }
 
   #autocomplete-dropdown {
@@ -895,64 +751,48 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     justify-content: flex-end;
     gap: 8px;
   }
+
+  .grow {
+    flex: 1;
+  }
 </style>
 </head>
 <body>
   <div id="app">
-    <section id="hero" class="panel">
-      <div class="hero-top">
-        <div>
-          <div class="eyebrow">Local Workspace Copilot</div>
-          <div class="title">Ollama AI Assistant</div>
-          <div class="subtitle">Installed model tanlang, chatlar orasida yuring va fayllarni <code>@</code> bilan contextga qo‘shing.</div>
-        </div>
-        <div class="status-pill">
-          <span class="status-dot" id="model-status-dot"></span>
-          <span id="model-status-text">Checking Ollama…</span>
-        </div>
+    <section id="topbar" class="panel">
+      <div class="control-row">
+        <select id="session-select" class="input grow" onchange="switchSession(this.value)"></select>
+        <button class="btn btn-secondary btn-icon" onclick="newSession()" title="New chat">+</button>
+        <button class="btn btn-secondary btn-icon" onclick="deleteCurrentSession()" title="Delete chat">✕</button>
       </div>
-    </section>
-
-    <section id="toolbar" class="panel">
-      <div class="toolbar-row">
-        <span class="toolbar-label">Model</span>
-        <select id="model-select" class="input" onchange="setModel(this.value)"></select>
-        <button class="btn btn-secondary btn-icon" onclick="refreshModels()" title="Refresh models">↻</button>
-      </div>
-      <div class="toolbar-row">
-        <button class="btn btn-primary" onclick="newSession()">New chat</button>
-        <button class="btn btn-secondary" onclick="refreshSessions()">Refresh chats</button>
-      </div>
-    </section>
-
-    <section id="session-panel" class="panel">
-      <div class="section-head">
-        <div class="section-title">Chat List</div>
-        <div class="section-note" id="session-count">0 chats</div>
-      </div>
-      <div id="session-list"></div>
     </section>
 
     <section id="msgs" class="panel">
       <div class="empty" id="empty-state">
-        Savol bering, kod yuboring yoki <code>@src/file.ts</code> deb fayl mention qiling.<br>
-        Aktiv editor context avtomatik qo‘shiladi.
+        Ask a question or mention a file with <code>@src/file.ts</code>.<br>
+        The current file context is added automatically.
       </div>
     </section>
 
     <section id="composer" class="panel">
       <div id="attached-files"></div>
       <div class="composer-top">
+        <select id="model-select" class="input grow" onchange="setModel(this.value)"></select>
+        <button class="btn btn-secondary btn-icon" onclick="refreshModels()" title="Refresh models">↻</button>
         <div class="composer-actions">
-          <button class="btn btn-secondary btn-icon" onclick="openMentionPicker()" title="Mention workspace file">@</button>
+          <button class="btn btn-secondary btn-icon" onclick="openMentionPicker()" title="Mention a workspace file">@</button>
           <button class="btn btn-secondary btn-icon" onclick="pickFiles()" title="Attach files">+</button>
         </div>
-        <div class="composer-hint">Type <code>@</code> to search project files</div>
+      </div>
+
+      <div class="status-row">
+        <span class="status-dot" id="model-status-dot"></span>
+        <span id="model-status-text">Checking Ollama...</span>
       </div>
 
       <div id="autocomplete-dropdown"></div>
 
-      <textarea id="input" placeholder="Ask about the current codebase, or mention files with @..." onkeydown="onKey(event)"></textarea>
+      <textarea id="input" placeholder="Ask about the codebase or mention files with @..." onkeydown="onKey(event)"></textarea>
 
       <div class="composer-footer">
         <button class="btn btn-danger" id="btn-stop" onclick="stop()" style="display:none">Stop</button>
@@ -968,6 +808,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   const attachedFilesEl = document.getElementById('attached-files');
   const autocompleteEl = document.getElementById('autocomplete-dropdown');
   const modelSelectEl = document.getElementById('model-select');
+  const sessionSelectEl = document.getElementById('session-select');
 
   let botDiv = null;
   let botText = '';
@@ -1125,39 +966,25 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     vscode.postMessage({ command: 'refreshModels' });
   }
 
-  function refreshSessions() {
-    vscode.postMessage({ command: 'getSessions' });
-  }
-
   function renderSessionList() {
-    const list = document.getElementById('session-list');
-    const count = document.getElementById('session-count');
     const sorted = [...sessions].sort((a, b) => b.lastModifiedAt - a.lastModifiedAt);
 
-    count.textContent = sorted.length === 1 ? '1 chat' : sorted.length + ' chats';
-
     if (!sorted.length) {
-      list.innerHTML = '<div class="autocomplete-empty">No chats yet</div>';
+      sessionSelectEl.innerHTML = '<option value="">No chats yet</option>';
+      sessionSelectEl.disabled = true;
       return;
     }
 
-    list.innerHTML = sorted.map(session => \`
-      <div class="session-item \${session.id === activeSessionId ? 'active' : ''}" onclick="switchSession('\${session.id}')">
-        <div>
-          <div class="session-name">\${escapeHtml(session.name || 'New chat')}</div>
-          <div class="session-meta">
-            <span>\${formatSessionDate(session.lastModifiedAt)}</span>
-            <span>\${session.messageCount || 0} msgs</span>
-          </div>
-        </div>
-        <button class="session-delete" onclick="deleteSession(event, '\${session.id}')" title="Delete chat">✕</button>
-      </div>
-    \`).join('');
+    sessionSelectEl.disabled = false;
+    sessionSelectEl.innerHTML = sorted.map(session => {
+      const suffix = session.messageCount > 0 ? ' (' + session.messageCount + ')' : '';
+      return \`<option value="\${session.id}" \${session.id === activeSessionId ? 'selected' : ''}>\${escapeHtml(session.name || 'New chat')}\${suffix}</option>\`;
+    }).join('');
   }
 
   function formatSessionDate(timestamp) {
     try {
-      return new Date(timestamp).toLocaleString([], {
+      return new Date(timestamp).toLocaleString('en-US', {
         month: 'short',
         day: 'numeric',
         hour: '2-digit',
@@ -1179,12 +1006,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     vscode.postMessage({ command: 'switchSession', sessionId });
   }
 
-  function deleteSession(event, sessionId) {
-    if (event) {
-      event.stopPropagation();
-      event.preventDefault();
+  function deleteCurrentSession() {
+    if (!activeSessionId) {
+      return;
     }
-    vscode.postMessage({ command: 'deleteSession', sessionId });
+    vscode.postMessage({ command: 'deleteSession', sessionId: activeSessionId });
   }
 
   function onKey(event) {
@@ -1398,7 +1224,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     const div = document.createElement('div');
     div.id = 'empty-state';
     div.className = 'empty';
-    div.innerHTML = 'Savol bering, kod yuboring yoki <code>@src/file.ts</code> deb fayl mention qiling.<br>Aktiv editor context avtomatik qo‘shiladi.';
+    div.innerHTML = 'Ask a question or mention a file with <code>@src/file.ts</code>.<br>The current file context is added automatically.';
     msgs.appendChild(div);
   }
 
@@ -1455,7 +1281,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   function extractUserMessage(content) {
-    const match = content.match(/\\*\\*Question:\\*\\*\\s*(.+?)$/s);
+    const match = content.match(/\\*\\*(?:Question|Savol):\\*\\*\\s*(.+?)$/s);
     return match ? match[1].trim() : content;
   }
 

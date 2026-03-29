@@ -88,7 +88,7 @@ export function buildPrompt(userMessage: string, ctx: ContextResult | null, extr
   if (!ctx) { return userMessage; }
 
   const fileLabel = vscode.workspace.asRelativePath(ctx.fileName, false) || path.basename(ctx.fileName);
-  let prompt = `You are an experienced ${ctx.language} developer. Answer in the context of the following code.
+  let prompt = `You are an experienced ${ctx.language} developer. Answer in the context of the following code. Unless the user asks otherwise, respond in English.
 
 **File:** ${fileLabel}
 **Language:** ${ctx.language}

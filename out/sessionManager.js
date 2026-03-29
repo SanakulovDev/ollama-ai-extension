@@ -60,7 +60,8 @@ class SessionManager {
     getSession(id) {
         try {
             const sessions = this._loadAllSessions();
-            return sessions[id] || null;
+            const session = sessions[id];
+            return session ? { ...session, name: this._normalizeSessionName(session) } : null;
         }
         catch (err) {
             console.error('Failed to get session:', err);
@@ -75,7 +76,7 @@ class SessionManager {
             const sessions = this._loadAllSessions();
             return Object.values(sessions).map(s => ({
                 id: s.id,
-                name: s.name,
+                name: this._normalizeSessionName(s),
                 messageCount: s.messages.length,
                 lastModifiedAt: s.lastModifiedAt
             }));
@@ -147,9 +148,9 @@ class SessionManager {
         if (!firstUserMsg) {
             return this._generateDefaultName(Date.now());
         }
-        // Extract text after "**Question:**" marker if present
+        // Extract text after the question marker if present
         const content = firstUserMsg.content;
-        const match = content.match(/\*\*Question:\*\*\s*(.+?)(?:\n|$)/s);
+        const match = content.match(/\*\*(?:Question|Savol):\*\*\s*(.+?)(?:\n|$)/s);
         const text = match ? match[1].trim() : content.trim();
         // Remove markdown and code blocks
         const cleaned = text
@@ -182,11 +183,17 @@ class SessionManager {
      */
     _generateDefaultName(timestamp) {
         const date = new Date(timestamp);
-        const month = date.toLocaleString('en', { month: 'short' });
+        const month = date.toLocaleString('en-US', { month: 'short' });
         const day = date.getDate();
         const hours = String(date.getHours()).padStart(2, '0');
         const minutes = String(date.getMinutes()).padStart(2, '0');
         return `Chat ${month} ${day}, ${hours}:${minutes}`;
+    }
+    _normalizeSessionName(session) {
+        if (session.name.startsWith('Chat ') || session.name.startsWith('Suhbat ')) {
+            return this._generateDefaultName(session.createdAt);
+        }
+        return session.name;
     }
 }
 exports.SessionManager = SessionManager;

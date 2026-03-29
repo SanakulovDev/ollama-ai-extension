@@ -62,7 +62,7 @@ async function activate(context) {
         // Warn if Ollama is not running
         const running = await client.isRunning();
         if (!running) {
-            const action = await vscode.window.showWarningMessage('Ollama AI: Server not found. Is Ollama running?', 'Setup', 'Close');
+            const action = await vscode.window.showWarningMessage('Ollama server not found. Is Ollama running?', 'Setup', 'Close');
             if (action === 'Setup') {
                 onboardingPanel_1.OnboardingPanel.show(context, client);
             }

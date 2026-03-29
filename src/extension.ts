@@ -32,7 +32,7 @@ export async function activate(context: vscode.ExtensionContext) {
     const running = await client.isRunning();
     if (!running) {
       const action = await vscode.window.showWarningMessage(
-        'Ollama AI: Server not found. Is Ollama running?',
+        'Ollama server not found. Is Ollama running?',
         'Setup', 'Close'
       );
       if (action === 'Setup') {
