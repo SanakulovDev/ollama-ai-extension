@@ -1,17 +1,17 @@
 # Ollama AI Assistant
 
-100% lokal, internet talab qilmaydi — VS Code / Cursor uchun AI assistant.
+100% local, no internet required — AI assistant for VS Code / Cursor.
 
-## Xususiyatlar
+## Features
 
-- Birinchi ishga tushganda **onboarding wizard** — Ollama va LLM o'rnatishga yo'naltiradi
-- **Qurilma tahlili** — RAM, CPU asosida mos modellarni tavsiya qiladi
-- **Cheksiz fayl konteksti** — Continue'dan farqli, fayl hajmiga cheklov yo'q
-- **Smart context window** — kursor atrofidagi kodni avtomatik yuboradi
-- **Streaming javob** — tokenlar real-vaqtda ko'rinadi
-- **Oflayn** — hech qanday ma'lumot tashqariga chiqmaydi
+- **Onboarding wizard** on first launch — guides you through Ollama and LLM installation
+- **Hardware analysis** — recommends suitable models based on RAM and CPU
+- **Unlimited file context** — unlike Continue, no file size limits
+- **Smart context window** — automatically sends code around the cursor
+- **Streaming response** — tokens appear in real-time
+- **Offline** — no data ever leaves your machine
 
-## O'rnatish
+## Installation
 
 ```bash
 git clone https://github.com/your-name/ollama-ai-assistant
@@ -19,33 +19,33 @@ cd ollama-ai-assistant
 npm install
 ```
 
-VS Code'da: `F5` → Extension Development Host
+In VS Code: `F5` → Extension Development Host
 
-## Yig'ish (package)
+## Packaging
 
 ```bash
 npm install -g @vscode/vsce
 vsce package
-# ollama-ai-assistant-1.0.0.vsix fayl yaratiladi
+# Creates ollama-ai-assistant-1.0.0.vsix file
 ```
 
-O'rnatish:
+Install:
 ```
 code --install-extension ollama-ai-assistant-1.0.0.vsix
 ```
 
-## Tavsiya etilgan modellar
+## Recommended Models
 
-| Model | RAM | Tezlik | Mos |
-|-------|-----|--------|-----|
-| Qwen 2.5 3B  | 4 GB  | Juda tez | Kod, chat |
-| Llama 3.2 3B | 4 GB  | Tez | Umumiy |
-| DeepSeek Coder 6.7B | 8 GB | O'rtacha | Faqat kod |
-| Mistral 7B  | 10 GB | O'rtacha | Ko'p maqsad |
-| Qwen 2.5 14B | 16 GB | O'rtacha | Murakkab vazifalar |
-| Llama 3.1 70B | 48 GB | Sekin | Eng murakkab |
+| Model | RAM | Speed | Best For |
+|-------|-----|-------|----------|
+| Qwen 2.5 3B  | 4 GB  | Very Fast | Code, chat |
+| Llama 3.2 3B | 4 GB  | Fast | General |
+| DeepSeek Coder 6.7B | 8 GB | Medium | Code only |
+| Mistral 7B  | 10 GB | Medium | Multi-purpose |
+| Qwen 2.5 14B | 16 GB | Medium | Complex tasks |
+| Llama 3.1 70B | 48 GB | Slow | Most complex |
 
-## Sozlamalar
+## Settings
 
 ```json
 {
@@ -57,6 +57,6 @@ code --install-extension ollama-ai-assistant-1.0.0.vsix
 }
 ```
 
-## Litsenziya
+## License
 
-MIT — barchaga ochiq
+MIT — open for everyone
