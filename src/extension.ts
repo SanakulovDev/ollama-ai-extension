@@ -9,35 +9,35 @@ export async function activate(context: vscode.ExtensionContext) {
   const host   = config.get<string>('host', 'http://localhost:11434');
   const client = new OllamaClient(host);
 
-  // Sidebar chat provider ro'yxatdan o'tkazish
+  // Register sidebar chat provider
   const chatProvider = new ChatViewProvider(context, client);
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(ChatViewProvider.viewType, chatProvider)
   );
 
-  // Birinchi marta ishga tushganda onboarding ko'rsatish
+  // Show onboarding on first launch
   const hasSetup = context.globalState.get<boolean>('ollamaAI.setupDone', false);
   if (!hasSetup) {
-    // Bir oz kuting, window tayyor bo'lsin
+    // Wait a moment for the window to be ready
     setTimeout(() => {
       OnboardingPanel.show(context, client);
     }, 1000);
     await context.globalState.update('ollamaAI.setupDone', true);
   } else {
-    // Ollama ishlamayotgan bo'lsa ogohlantir
+    // Warn if Ollama is not running
     const running = await client.isRunning();
     if (!running) {
       const action = await vscode.window.showWarningMessage(
-        'Ollama AI: Server topilmadi. Ollama ishlaydimi?',
-        'Sozlash', 'Yopish'
+        'Ollama AI: Server not found. Is Ollama running?',
+        'Setup', 'Close'
       );
-      if (action === 'Sozlash') {
+      if (action === 'Setup') {
         OnboardingPanel.show(context, client);
       }
     }
   }
 
-  // Buyruqlar ro'yxatdan o'tkazish
+  // Register commands
   context.subscriptions.push(
 
     vscode.commands.registerCommand('ollamaAI.setup', () => {
@@ -50,21 +50,21 @@ export async function activate(context: vscode.ExtensionContext) {
 
     vscode.commands.registerCommand('ollamaAI.explainCode', () => {
       vscode.commands.executeCommand('workbench.view.extension.ollama-sidebar');
-      chatProvider.sendWithContext('Bu kodni o\'zbek tilida tushuntir:');
+      chatProvider.sendWithContext('Explain this code:');
     }),
 
     vscode.commands.registerCommand('ollamaAI.fixCode', () => {
       vscode.commands.executeCommand('workbench.view.extension.ollama-sidebar');
-      chatProvider.sendWithContext('Bu koddagi xatolarni tuzat va tushuntir:');
+      chatProvider.sendWithContext('Fix the errors in this code and explain:');
     }),
 
     vscode.commands.registerCommand('ollamaAI.generateDoc', () => {
       vscode.commands.executeCommand('workbench.view.extension.ollama-sidebar');
-      chatProvider.sendWithContext('Bu kod uchun JSDoc/docstring dokumentatsiya yoz:');
+      chatProvider.sendWithContext('Write JSDoc/docstring documentation for this code:');
     }),
   );
 
-  console.log('Ollama AI Assistant faol!');
+  console.log('Ollama AI Assistant activated!');
 }
 
 export function deactivate() {}

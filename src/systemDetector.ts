@@ -30,7 +30,7 @@ export const ALL_MODELS: ModelRecommendation[] = [
     vramRequired: 0,
     speed: 'very-fast',
     quality: 'good',
-    bestFor: 'Kod yozish, chat, tez javob',
+    bestFor: 'Code writing, chat, fast responses',
     badge: 'recommended',
     pullCmd: 'ollama pull qwen2.5:3b'
   },
@@ -41,7 +41,7 @@ export const ALL_MODELS: ModelRecommendation[] = [
     vramRequired: 0,
     speed: 'fast',
     quality: 'good',
-    bestFor: 'Umumiy vazifalar, ingliz tili',
+    bestFor: 'General tasks, English language',
     badge: 'recommended',
     pullCmd: 'ollama pull llama3.2:3b'
   },
@@ -52,7 +52,7 @@ export const ALL_MODELS: ModelRecommendation[] = [
     vramRequired: 0,
     speed: 'medium',
     quality: 'great',
-    bestFor: 'Faqat kod — debug, refactor',
+    bestFor: 'Code only — debug, refactor',
     badge: 'medium',
     pullCmd: 'ollama pull deepseek-coder:6.7b'
   },
@@ -63,7 +63,7 @@ export const ALL_MODELS: ModelRecommendation[] = [
     vramRequired: 0,
     speed: 'medium',
     quality: 'great',
-    bestFor: 'Yozish, tahlil, ko\'p maqsad',
+    bestFor: 'Writing, analysis, multi-purpose',
     badge: 'medium',
     pullCmd: 'ollama pull mistral:7b'
   },
@@ -74,7 +74,7 @@ export const ALL_MODELS: ModelRecommendation[] = [
     vramRequired: 0,
     speed: 'medium',
     quality: 'excellent',
-    bestFor: 'Murakkab kod, arxitektura',
+    bestFor: 'Complex code, architecture',
     badge: 'medium',
     pullCmd: 'ollama pull qwen2.5:14b'
   },
@@ -85,7 +85,7 @@ export const ALL_MODELS: ModelRecommendation[] = [
     vramRequired: 40,
     speed: 'slow',
     quality: 'excellent',
-    bestFor: 'Eng murakkab vazifalar',
+    bestFor: 'Most complex tasks',
     badge: 'powerful-pc',
     pullCmd: 'ollama pull llama3.1:70b'
   },
@@ -95,7 +95,7 @@ export function detectSystem(): SystemInfo {
   const totalRamBytes = os.totalmem();
   const ramGb         = Math.round(totalRamBytes / (1024 ** 3));
   const cpuCores      = os.cpus().length;
-  const cpuModel      = os.cpus()[0]?.model ?? 'Noma\'lum';
+  const cpuModel      = os.cpus()[0]?.model ?? 'Unknown';
   const platform      = os.platform(); // win32 | darwin | linux
   const arch          = os.arch();
 

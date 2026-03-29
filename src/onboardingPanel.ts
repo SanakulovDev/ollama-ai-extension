@@ -16,7 +16,7 @@ export class OnboardingPanel {
 
     const panel = vscode.window.createWebviewPanel(
       'ollamaSetup',
-      'Ollama AI — Sozlash',
+      'Ollama AI — Setup',
       vscode.ViewColumn.One,
       { enableScripts: true, retainContextWhenHidden: true }
     );
@@ -35,7 +35,7 @@ export class OnboardingPanel {
     this._panel.webview.html = this._buildHtml();
     this._panel.onDidDispose(() => { OnboardingPanel.currentPanel = undefined; }, null, context.subscriptions);
 
-    // Webview'dan kelgan xabarlarni qabul qil
+    // Handle messages from webview
     this._panel.webview.onDidReceiveMessage(async msg => {
       switch (msg.command) {
 
@@ -55,12 +55,12 @@ export class OnboardingPanel {
 
         case 'installModel': {
           const modelId: string = msg.modelId;
-          const terminal = vscode.window.createTerminal({ name: `Ollama: ${modelId} yuklanmoqda` });
+          const terminal = vscode.window.createTerminal({ name: `Ollama: downloading ${modelId}` });
           terminal.show();
           terminal.sendText(`ollama pull ${modelId}`);
           vscode.window.showInformationMessage(
-            `${modelId} yuklanmoqda. Terminal oynasini kuzating.`,
-            'Terminalga o\'tish'
+            `Downloading ${modelId}. Watch the terminal window.`,
+            'Go to Terminal'
           ).then(sel => { if (sel) { terminal.show(); } });
           break;
         }
@@ -69,7 +69,7 @@ export class OnboardingPanel {
           await vscode.workspace.getConfiguration('ollamaAI').update(
             'model', msg.modelId, vscode.ConfigurationTarget.Global
           );
-          vscode.window.showInformationMessage(`Model ${msg.modelId} ga o'rnatildi!`);
+          vscode.window.showInformationMessage(`Model set to ${msg.modelId}!`);
           this._panel.dispose();
           vscode.commands.executeCommand('ollamaAI.openChat');
           break;
@@ -82,7 +82,7 @@ export class OnboardingPanel {
       }
     });
 
-    // Birinchi marta yuklanganda avtomatik tekshir
+    // Auto-check on first load
     setTimeout(() => {
       this._panel.webview.postMessage({ command: 'init' });
     }, 500);
@@ -92,11 +92,11 @@ export class OnboardingPanel {
     const models = ALL_MODELS;
 
     return /* html */`<!DOCTYPE html>
-<html lang="uz">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Ollama AI Sozlash</title>
+<title>Ollama AI Setup</title>
 <style>
   :root {
     --bg: var(--vscode-editor-background, #1e1e1e);
@@ -152,7 +152,7 @@ export class OnboardingPanel {
 
 <div style="margin-bottom: 24px;">
   <h1>Ollama AI Assistant</h1>
-  <p class="sub">100% lokal, internet talab qilmaydi. Bir marta sozlang, ishlatavering.</p>
+  <p class="sub">100% local, no internet required. Set up once, use forever.</p>
 </div>
 
 <div class="progress">
@@ -164,47 +164,47 @@ export class OnboardingPanel {
 
 <!-- Step 1: Ollama check -->
 <div class="step active" id="step1">
-  <h2>Ollama tekshiruvi</h2>
-  <p class="sub">Ollama — modellarni local ishlatish uchun muhim dastur</p>
+  <h2>Ollama Check</h2>
+  <p class="sub">Ollama — essential software for running models locally</p>
 
   <div class="box" id="ollama-status-box">
-    <div id="ollama-status-text" style="opacity:.6">Tekshirilmoqda...</div>
+    <div id="ollama-status-text" style="opacity:.6">Checking...</div>
   </div>
 
   <div class="box" id="install-guide" style="display:none">
-    <h2 style="margin-bottom:10px">O'rnatish</h2>
-    <p style="opacity:.7; margin-bottom:8px">Platformangizni tanlang:</p>
+    <h2 style="margin-bottom:10px">Installation</h2>
+    <p style="opacity:.7; margin-bottom:8px">Choose your platform:</p>
     <div class="code">
       macOS / Linux:<br>
       curl -fsSL https://ollama.com/install.sh | sh<br><br>
       Windows:<br>
       winget install Ollama.Ollama
     </div>
-    <a onclick="openLink()">Ollama.com saytiga o'tish →</a>
+    <a onclick="openLink()">Go to Ollama.com →</a>
     <br><br>
-    <p style="opacity:.6; font-size:12px">O'rnatgandan so'ng bu tugmani bosing:</p>
+    <p style="opacity:.6; font-size:12px">After installing, click this button:</p>
   </div>
 
   <div style="margin-top: 16px; display: flex; gap: 8px;">
-    <button class="btn btn-secondary" onclick="checkOllama()">Qayta tekshir</button>
-    <button class="btn btn-primary" id="next1" onclick="goStep(2)">Davom etish →</button>
+    <button class="btn btn-secondary" onclick="checkOllama()">Re-check</button>
+    <button class="btn btn-primary" id="next1" onclick="goStep(2)">Continue →</button>
   </div>
 </div>
 
 <!-- Step 2: Hardware info -->
 <div class="step" id="step2">
-  <h2>Qurilma xarakteristikasi</h2>
-  <p class="sub">Sizga mos modellarni avtomatik aniqlaymiz</p>
+  <h2>Hardware Specifications</h2>
+  <p class="sub">We'll automatically detect the best models for you</p>
 
   <div class="box">
     <div class="hw-row">
-      <span>Operativ xotira (RAM)</span>
+      <span>Memory (RAM)</span>
       <strong id="ram-val">—</strong>
     </div>
     <div class="hw-bar"><div class="hw-fill" id="ram-bar" style="width:0%; background:var(--green)"></div></div>
 
     <div class="hw-row">
-      <span>Protsessor (CPU)</span>
+      <span>Processor (CPU)</span>
       <strong id="cpu-val">—</strong>
     </div>
     <div class="hw-bar"><div class="hw-fill" id="cpu-bar" style="width:0%; background:#4fc1ff"></div></div>
@@ -216,52 +216,52 @@ export class OnboardingPanel {
   </div>
 
   <div class="box" id="hw-advice" style="background: rgba(78,201,176,.08); border-color: rgba(78,201,176,.3);">
-    <span id="hw-advice-text" style="color: var(--green);">Tahlil qilinmoqda...</span>
+    <span id="hw-advice-text" style="color: var(--green);">Analyzing...</span>
   </div>
 
-  <button class="btn btn-primary mt" onclick="goStep(3)">Model tanlash →</button>
+  <button class="btn btn-primary mt" onclick="goStep(3)">Choose Model →</button>
 </div>
 
 <!-- Step 3: Model selection -->
 <div class="step" id="step3">
-  <h2>LLM modelini tanlang</h2>
-  <p class="sub">Qurilmangizga mos modellar yashil belgilangan</p>
+  <h2>Choose an LLM Model</h2>
+  <p class="sub">Models compatible with your hardware are marked in green</p>
 
   <div id="model-list"></div>
 
   <div style="margin-top: 16px; display: flex; gap: 8px;">
-    <button class="btn btn-secondary" onclick="goStep(2)">← Orqaga</button>
-    <button class="btn btn-primary" id="install-btn" onclick="doInstall()">O'rnatish va boshlash</button>
+    <button class="btn btn-secondary" onclick="goStep(2)">← Back</button>
+    <button class="btn btn-primary" id="install-btn" onclick="doInstall()">Install and Start</button>
   </div>
 </div>
 
 <!-- Step 4: Done -->
 <div class="step" id="step4">
-  <h2>Hammasi tayyor!</h2>
-  <p class="sub">Model yuklanmoqda — siz ishlay olasiz</p>
+  <h2>All Set!</h2>
+  <p class="sub">Model is downloading — you can start working</p>
 
   <div class="box" style="background: rgba(78,201,176,.08); border-color: rgba(78,201,176,.3);">
-    <p style="color: var(--green); margin-bottom: 8px;">Terminal ochildi va model yuklanmoqda.</p>
-    <p style="opacity:.7">Yuklanish vaqti: <strong>internetga qarab 5–20 daqiqa</strong></p>
+    <p style="color: var(--green); margin-bottom: 8px;">Terminal opened and model is downloading.</p>
+    <p style="opacity:.7">Download time: <strong>5–20 minutes depending on internet speed</strong></p>
   </div>
 
   <div class="box">
-    <p style="opacity:.7; margin-bottom:8px;">Keyingi qadamlar:</p>
-    <p>1. Terminal yuklashni kutadi</p>
-    <p>2. Tugatgach, sol paneldagi <strong>Ollama AI</strong> ikonkasini bosing</p>
-    <p>3. Chat boshlanadi!</p>
+    <p style="opacity:.7; margin-bottom:8px;">Next steps:</p>
+    <p>1. Wait for the terminal to finish downloading</p>
+    <p>2. Once done, click the <strong>Ollama AI</strong> icon in the left panel</p>
+    <p>3. Start chatting!</p>
   </div>
 
   <div class="box">
-    <p style="opacity:.7; margin-bottom:6px;">Foydali buyruqlar:</p>
+    <p style="opacity:.7; margin-bottom:6px;">Useful commands:</p>
     <div class="code">
-      ollama list          ← modellar ro'yxati<br>
-      ollama run qwen2.5:3b ← terminalda sinash<br>
-      ollama rm model-name  ← o'chirish
+      ollama list          ← list models<br>
+      ollama run qwen2.5:3b ← test in terminal<br>
+      ollama rm model-name  ← remove model
     </div>
   </div>
 
-  <button class="btn btn-primary mt" onclick="finishSetup()">Chatni ochish</button>
+  <button class="btn btn-primary mt" onclick="finishSetup()">Open Chat</button>
 </div>
 
 <script>
@@ -280,7 +280,7 @@ export class OnboardingPanel {
   });
 
   function checkOllama() {
-    document.getElementById('ollama-status-text').textContent = 'Tekshirilmoqda...';
+    document.getElementById('ollama-status-text').textContent = 'Checking...';
     document.getElementById('ollama-status-text').style.opacity = '.6';
     vscode.postMessage({ command: 'checkOllama' });
   }
@@ -290,12 +290,12 @@ export class OnboardingPanel {
     const text = document.getElementById('ollama-status-text');
     const guide = document.getElementById('install-guide');
     if (msg.running) {
-      text.innerHTML = '<span style="color:var(--green)">✓ Ollama ishlayapti</span>'
-        + (msg.models.length ? '<br><span style="opacity:.6; font-size:11px">O\'rnatilgan: ' + msg.models.join(', ') + '</span>' : '');
+      text.innerHTML = '<span style="color:var(--green)">✓ Ollama is running</span>'
+        + (msg.models.length ? '<br><span style="opacity:.6; font-size:11px">Installed: ' + msg.models.join(', ') + '</span>' : '');
       text.style.opacity = '1';
       guide.style.display = 'none';
     } else {
-      text.innerHTML = '<span style="color:var(--amber)">✗ Ollama topilmadi</span><br><span style="opacity:.6">Quyida o\'rnatish yo\'riqnomasini ko\'ring</span>';
+      text.innerHTML = '<span style="color:var(--amber)">✗ Ollama not found</span><br><span style="opacity:.6">See installation instructions below</span>';
       text.style.opacity = '1';
       guide.style.display = 'block';
     }
@@ -307,7 +307,7 @@ export class OnboardingPanel {
     const ramPct = Math.min(100, Math.round(sys.ramGb / 64 * 100));
     const cpuPct = Math.min(100, Math.round(sys.cpuCores / 32 * 100));
     document.getElementById('ram-val').textContent  = sys.ramGb + ' GB';
-    document.getElementById('cpu-val').textContent  = sys.cpuCores + ' yadrolar';
+    document.getElementById('cpu-val').textContent  = sys.cpuCores + ' cores';
     document.getElementById('ram-bar').style.width  = ramPct + '%';
     document.getElementById('cpu-bar').style.width  = cpuPct + '%';
     document.getElementById('cpu-model-text').textContent = sys.cpuModel.substring(0, 40);
@@ -317,10 +317,10 @@ export class OnboardingPanel {
     const best    = advised.length ? advised[advised.length - 1] : recs[0];
     document.getElementById('hw-advice-text').textContent =
       sys.ramGb >= 16
-        ? sys.ramGb + ' GB RAM bilan 7B–14B modellar qulay ishlaydi'
+        ? sys.ramGb + ' GB RAM — 7B–14B models will run smoothly'
         : sys.ramGb >= 8
-          ? sys.ramGb + ' GB RAM bilan 3B–7B modellar tavsiya etiladi'
-          : '4–6 GB RAM uchun 3B modellar optimal';
+          ? sys.ramGb + ' GB RAM — 3B–7B models are recommended'
+          : '4–6 GB RAM — 3B models are optimal';
 
     buildModelList(recs);
   }
@@ -330,12 +330,12 @@ export class OnboardingPanel {
     list.innerHTML = '';
     models.forEach(m => {
       const badge = m.badge === 'recommended'
-        ? '<span class="badge badge-green">Tavsiya</span>'
+        ? '<span class="badge badge-green">Recommended</span>'
         : m.badge === 'medium'
-          ? '<span class="badge badge-amber">O\'rta</span>'
-          : '<span class="badge badge-red">Kuchli PC kerak</span>';
-      const speedLabel = { 'very-fast':'Juda tez', fast:'Tez', medium:"O'rtacha", slow:'Sekin' }[m.speed];
-      const qualLabel  = { basic:'Oddiy', good:'Yaxshi', great:'A\'lo', excellent:'Mukammal' }[m.quality];
+          ? '<span class="badge badge-amber">Medium</span>'
+          : '<span class="badge badge-red">Powerful PC required</span>';
+      const speedLabel = { 'very-fast':'Very Fast', fast:'Fast', medium:'Medium', slow:'Slow' }[m.speed];
+      const qualLabel  = { basic:'Basic', good:'Good', great:'Great', excellent:'Excellent' }[m.quality];
       const div = document.createElement('div');
       div.className = 'model-card' + (m.id === selectedModel ? ' sel' : '');
       div.id = 'card-' + m.id.replace(/[:\.]/g, '-');
@@ -346,8 +346,8 @@ export class OnboardingPanel {
         </div>
         <div class="specs">
           <div class="spec">RAM<span>\${m.ramRequired} GB+</span></div>
-          <div class="spec">Tezlik<span>\${speedLabel}</span></div>
-          <div class="spec">Sifat<span>\${qualLabel}</span></div>
+          <div class="spec">Speed<span>\${speedLabel}</span></div>
+          <div class="spec">Quality<span>\${qualLabel}</span></div>
         </div>
         <div style="font-size:11px; opacity:.55; margin-top:6px">\${m.bestFor}</div>
       \`;
@@ -362,7 +362,7 @@ export class OnboardingPanel {
     const safeId = 'card-' + id.replace(/[:\.]/g, '-');
     const el = document.getElementById(safeId);
     if (el) { el.classList.add('sel'); }
-    document.getElementById('install-btn').textContent = id + ' — o\'rnatish va boshlash';
+    document.getElementById('install-btn').textContent = id + ' — install and start';
   }
 
   function doInstall() {

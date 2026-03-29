@@ -12,11 +12,11 @@
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
-      { "command": "ollamaAI.openChat",    "title": "Ollama: Chatni ochish" },
-      { "command": "ollamaAI.setup",       "title": "Ollama: Sozlash wizardini ochish" },
-      { "command": "ollamaAI.explainCode", "title": "Ollama: Kodni tushuntir",  "when": "editorHasSelection" },
-      { "command": "ollamaAI.fixCode",     "title": "Ollama: Kodni tuzat",      "when": "editorHasSelection" },
-      { "command": "ollamaAI.generateDoc", "title": "Ollama: Dokumentatsiya yaz","when": "editorHasSelection" }
+      { "command": "ollamaAI.openChat",    "title": "Ollama: Open Chat" },
+      { "command": "ollamaAI.setup",       "title": "Ollama: Open Setup Wizard" },
+      { "command": "ollamaAI.explainCode", "title": "Ollama: Explain Code",     "when": "editorHasSelection" },
+      { "command": "ollamaAI.fixCode",     "title": "Ollama: Fix Code",         "when": "editorHasSelection" },
+      { "command": "ollamaAI.generateDoc", "title": "Ollama: Write Documentation","when": "editorHasSelection" }
     ],
     "menus": {
       "editor/context": [
@@ -38,11 +38,11 @@
     "configuration": {
       "title": "Ollama AI Assistant",
       "properties": {
-        "ollamaAI.host":         { "type": "string",  "default": "http://localhost:11434", "description": "Ollama server manzili" },
-        "ollamaAI.model":        { "type": "string",  "default": "qwen2.5:3b",             "description": "Tanlangan model" },
-        "ollamaAI.contextLines": { "type": "number",  "default": 150,                      "description": "Kursor atrofidagi qatorlar soni" },
-        "ollamaAI.temperature":  { "type": "number",  "default": 0.3,                      "description": "Model harorati (0-1)" },
-        "ollamaAI.streamResponse":{ "type": "boolean", "default": true,                    "description": "Real-vaqt stream javob" }
+        "ollamaAI.host":         { "type": "string",  "default": "http://localhost:11434", "description": "Ollama server address" },
+        "ollamaAI.model":        { "type": "string",  "default": "qwen2.5:3b",             "description": "Selected model" },
+        "ollamaAI.contextLines": { "type": "number",  "default": 150,                      "description": "Number of lines around cursor" },
+        "ollamaAI.temperature":  { "type": "number",  "default": 0.3,                      "description": "Model temperature (0-1)" },
+        "ollamaAI.streamResponse":{ "type": "boolean", "default": true,                    "description": "Real-time stream response" }
       }
     }
   },

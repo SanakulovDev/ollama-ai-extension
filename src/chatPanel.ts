@@ -31,10 +31,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     });
   }
 
-  /** Editor'dagi tanlangan kod bilan chat ochish */
+  /** Open chat with selected code from the editor */
   public sendWithContext(prefix: string) {
     const sel = getSelectionContext();
-    if (!sel) { vscode.window.showWarningMessage('Avval kodni tanlang'); return; }
+    if (!sel) { vscode.window.showWarningMessage('Select code first'); return; }
     const text = `${prefix}\n\`\`\`${sel.language}\n${sel.code}\n\`\`\``;
     this._view?.webview.postMessage({ command: 'injectMessage', text });
     this._handleSend(text);
@@ -45,7 +45,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
     const model = this._getModel();
 
-    // Fayl kontekstini qo'shish
+    // Add file context
     const ctx   = getActiveFileContext(this._getContextLines());
     const prompt = buildPrompt(userText, ctx);
 
@@ -72,7 +72,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       if (err?.message?.includes('abort')) {
         this._post({ command: 'streamDone' });
       } else {
-        this._post({ command: 'error', text: 'Ollama bilan ulanib bo\'lmadi. Ollama ishlaydimi?' });
+        this._post({ command: 'error', text: 'Could not connect to Ollama. Is Ollama running?' });
       }
     }
   }
@@ -91,7 +91,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
   private _buildHtml(): string {
     return /* html */`<!DOCTYPE html>
-<html lang="uz">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <style>
@@ -130,18 +130,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 <body>
   <div id="header">
     <span id="model-label">qwen2.5:3b</span>
-    <span onclick="clearChat()" style="cursor:pointer; opacity:.5; font-size:10px">tozalash</span>
+    <span onclick="clearChat()" style="cursor:pointer; opacity:.5; font-size:10px">clear</span>
   </div>
 
   <div id="msgs">
     <div class="empty" id="empty-state">
-      Kod yozing yoki savol bering<br>
-      <span style="font-size:11px">Fayl konteksti avtomatik qo'shiladi</span>
+      Write code or ask a question<br>
+      <span style="font-size:11px">File context is added automatically</span>
     </div>
   </div>
 
   <div id="input-area">
-    <textarea id="input" placeholder="Savol yoki buyruq..." onkeydown="onKey(event)"></textarea>
+    <textarea id="input" placeholder="Question or command..." onkeydown="onKey(event)"></textarea>
     <button class="btn btn-send" id="btn-send" onclick="send()">&#9658;</button>
     <button class="btn btn-stop" id="btn-stop" onclick="stop()">&#9632;</button>
   </div>
@@ -181,7 +181,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   function stop() { vscode.postMessage({ command: 'stop' }); }
 
   function clearChat() {
-    msgs.innerHTML = '<div class="empty" id="empty-state">Kod yozing yoki savol bering<br><span style="font-size:11px">Fayl konteksti avtomatik qo\\'shiladi</span></div>';
+    msgs.innerHTML = '<div class="empty" id="empty-state">Write code or ask a question<br><span style="font-size:11px">File context is added automatically</span></div>';
     botDiv = null; botText = '';
     vscode.postMessage({ command: 'clear' });
   }

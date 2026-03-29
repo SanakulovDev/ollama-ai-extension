@@ -19,7 +19,7 @@ export class OllamaClient {
     this.host = host.replace(/\/$/, '');
   }
 
-  /** Ollama ishlaydimi tekshir */
+  /** Check if Ollama is running */
   async isRunning(): Promise<boolean> {
     try {
       const res = await this.fetchJson('/api/tags', 'GET');
@@ -29,7 +29,7 @@ export class OllamaClient {
     }
   }
 
-  /** O'rnatilgan modellar ro'yxati */
+  /** List of installed models */
   async listModels(): Promise<string[]> {
     try {
       const res = await this.fetchJson('/api/tags', 'GET');
@@ -39,15 +39,15 @@ export class OllamaClient {
     }
   }
 
-  /** Model o'rnatilganligini tekshir */
+  /** Check if model is installed */
   async isModelInstalled(modelId: string): Promise<boolean> {
     const models = await this.listModels();
     return models.some(m => m.startsWith(modelId.split(':')[0]));
   }
 
   /**
-   * Streaming generate — har bir tokenni onChunk ga yuboradi
-   * Promise done bo'lganda stream tugaydi
+   * Streaming generate — sends each token to onChunk
+   * Stream ends when Promise resolves
    */
   async generateStream(
     model:   string,

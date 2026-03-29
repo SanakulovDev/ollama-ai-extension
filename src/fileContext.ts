@@ -12,8 +12,8 @@ export interface ContextResult {
 }
 
 /**
- * Cursor atrofidagi kodni oling.
- * Continue'dan farqi: cheksiz, smart window bilan ishlaydi.
+ * Get code around the cursor.
+ * Unlike Continue: works with unlimited, smart window.
  */
 export function getActiveFileContext(contextLines = 150): ContextResult | null {
   const editor = vscode.window.activeTextEditor;
@@ -23,7 +23,7 @@ export function getActiveFileContext(contextLines = 150): ContextResult | null {
   const cursor     = editor.selection.active;
   const totalLines = doc.lineCount;
 
-  // Kursor markazga, ikki tarafga teng contextLines
+  // Center on cursor, equal contextLines on both sides
   const half      = Math.floor(contextLines / 2);
   const startLine = Math.max(0, cursor.line - half);
   const endLine   = Math.min(totalLines - 1, cursor.line + half);
@@ -40,7 +40,7 @@ export function getActiveFileContext(contextLines = 150): ContextResult | null {
   };
 }
 
-/** Tanlangan matn bilan kontekst */
+/** Context with selected text */
 export function getSelectionContext(): { code: string; language: string } | null {
   const editor = vscode.window.activeTextEditor;
   if (!editor || editor.selection.isEmpty) { return null; }
@@ -52,7 +52,7 @@ export function getSelectionContext(): { code: string; language: string } | null
 }
 
 /**
- * Butun fayl (katta fayllar uchun chunklarga bo'linadi)
+ * Full file (chunked for large files)
  */
 export function getFullFileContext(maxChars = 80_000): ContextResult | null {
   const editor = vscode.window.activeTextEditor;
@@ -61,16 +61,16 @@ export function getFullFileContext(maxChars = 80_000): ContextResult | null {
   const doc  = editor.document;
   let   code = doc.getText();
 
-  // Agar juda katta bo'lsa, cursor atrofidan kesib olamiz
+  // If too large, cut around cursor
   if (code.length > maxChars) {
     const cursor  = editor.selection.active;
     const offset  = doc.offsetAt(cursor);
     const half    = Math.floor(maxChars / 2);
     const start   = Math.max(0, offset - half);
     const end     = Math.min(code.length, offset + half);
-    code = (start > 0 ? '// ... (boshqa kod o\'chirildi) ...\n' : '')
+    code = (start > 0 ? '// ... (preceding code omitted) ...\n' : '')
          + code.slice(start, end)
-         + (end < code.length ? '\n// ... (keyingi kod o\'chirildi) ...' : '');
+         + (end < code.length ? '\n// ... (following code omitted) ...' : '');
   }
 
   return {
@@ -83,27 +83,27 @@ export function getFullFileContext(maxChars = 80_000): ContextResult | null {
   };
 }
 
-/** Prompt uchun formatlangan kontekst */
+/** Formatted context for prompt */
 export function buildPrompt(userMessage: string, ctx: ContextResult | null): string {
   if (!ctx) { return userMessage; }
 
   const fileLabel = path.basename(ctx.fileName);
-  return `Siz tajribali ${ctx.language} dasturchisisiz. Quyidagi kod kontekstida javob bering.
+  return `You are an experienced ${ctx.language} developer. Answer in the context of the following code.
 
-**Fayl:** ${fileLabel}  
-**Til:** ${ctx.language}  
-**Jami qatorlar:** ${ctx.totalLines}
+**File:** ${fileLabel}
+**Language:** ${ctx.language}
+**Total lines:** ${ctx.totalLines}
 
 \`\`\`${ctx.language}
 ${ctx.code}
 \`\`\`
 
-**Savol:** ${userMessage}
+**Question:** ${userMessage}
 
-Javobingiz aniq va qisqa bo'lsin. Kod misollar uchun \`\`\` teglari ishlating.`;
+Keep your answer clear and concise. Use \`\`\` tags for code examples.`;
 }
 
-/** Oddiy qo'shni fayl toppish (import/require tahlilisiz) */
+/** Simple neighboring file finder (without import/require analysis) */
 function findRelatedFiles(filePath: string): string[] {
   const dir    = path.dirname(filePath);
   const ext    = path.extname(filePath);
