@@ -22,11 +22,11 @@ A VS Code extension providing an offline AI chat assistant powered by [Ollama](h
 
 ## Repository layout
 
-```
+```text
 src/                    # All TypeScript source (compile → out/)
   extension.ts          # Activation entry point; registers commands & providers
-  chatPanel.ts          # Main chat UI (WebviewViewProvider, ~1547 lines)
-  onboardingPanel.ts    # First-run setup wizard webview (~397 lines)
+  chatPanel.ts          # Main chat UI (WebviewViewProvider, largest module)
+  onboardingPanel.ts    # First-run setup wizard webview
   sessionManager.ts     # Chat session persistence via VS Code globalState
   ollamaClient.ts       # HTTP client for Ollama /api/generate and /api/chat
   systemDetector.ts     # Hardware detection + model recommendations
@@ -54,7 +54,7 @@ tsconfig.json           # Strict CommonJS/ES2020 → ./out
 | File | Responsibility |
 |---|---|
 | `extension.ts` | `activate()` wires sidebar, checks onboarding flag, registers 5 commands |
-| `chatPanel.ts` | Full chat UI: sessions, streaming, @mentions, file attachments, apply-edits |
+| `chatPanel.ts` | Full chat UI: sessions, streaming, @mentions, file attachments, apply-edits (largest module) |
 | `ollamaClient.ts` | Low-level HTTP streaming via Node `http`/`https`; `isRunning()`, `listModels()`, `chatStream()`, `generateStream()` |
 | `sessionManager.ts` | CRUD for `ChatSession` objects in `globalState`; auto-names sessions from first message |
 | `onboardingPanel.ts` | 4-step wizard: detect Ollama → hardware → pick model → download |
@@ -92,7 +92,7 @@ tsconfig.json           # Strict CommonJS/ES2020 → ./out
 
 ## Data flow
 
-```
+```text
 User action in sidebar
       │
       ▼
@@ -117,8 +117,8 @@ sessionManager.ts → saveSession() → globalState
 
 ```bash
 npm run compile        # tsc -p ./ → out/
-vsce package           # produces ollama-ai-assistant-1.0.0.vsix
-code --install-extension ollama-ai-assistant-1.0.0.vsix
+vsce package           # produces ollama-ai-assistant-<version>.vsix
+code --install-extension ollama-ai-assistant-<version>.vsix
 ```
 
 TypeScript config (`tsconfig.json`):
