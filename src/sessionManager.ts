@@ -8,6 +8,7 @@ export interface ChatSession {
   messages: OllamaMessage[];
   createdAt: number;
   lastModifiedAt: number;
+  skill?: 'code' | 'chat' | 'plan' | 'editor';
 }
 
 export interface SessionMetadata {

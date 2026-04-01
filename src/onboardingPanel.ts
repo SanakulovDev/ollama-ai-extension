@@ -143,6 +143,7 @@ export class OnboardingPanel {
   .btn-primary { background: var(--accent); color: var(--accent-fg); }
   .btn-primary:hover { opacity: .88; }
   .btn-secondary { background: var(--input); color: var(--fg); }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
   .code { font-family: var(--vscode-editor-font-family, monospace); font-size: 12px; background: rgba(0,0,0,.3); padding: 10px 12px; border-radius: 4px; margin: 8px 0; color: var(--green); }
   .mt { margin-top: 16px; }
   a { color: var(--accent); cursor: pointer; text-decoration: none; }
@@ -187,7 +188,7 @@ export class OnboardingPanel {
 
   <div style="margin-top: 16px; display: flex; gap: 8px;">
     <button class="btn btn-secondary" onclick="checkOllama()">Re-check</button>
-    <button class="btn btn-primary" id="next1" onclick="goStep(2)">Continue →</button>
+    <button class="btn btn-primary" id="next1" onclick="goStep(2)" disabled>Continue →</button>
   </div>
 </div>
 
@@ -240,7 +241,7 @@ export class OnboardingPanel {
   <h2>All Set!</h2>
   <p class="sub">Model is downloading — you can start working</p>
 
-  <div class="box" style="background: rgba(78,201,176,.08); border-color: rgba(78,201,176,.3);">
+  <div id="step4-download-info" class="box" style="background: rgba(78,201,176,.08); border-color: rgba(78,201,176,.3);">
     <p style="color: var(--green); margin-bottom: 8px;">Terminal opened and model is downloading.</p>
     <p style="opacity:.7">Download time: <strong>5–20 minutes depending on internet speed</strong></p>
   </div>
@@ -269,6 +270,7 @@ export class OnboardingPanel {
   let step = 1;
   let selectedModel = '${models[0]?.id ?? 'qwen2.5:3b'}';
   let sysInfo = null;
+  let installedModels = [];
 
   const MODELS = ${JSON.stringify(models)};
 
@@ -286,18 +288,22 @@ export class OnboardingPanel {
   }
 
   function handleOllamaStatus(msg) {
-    const box  = document.getElementById('ollama-status-box');
-    const text = document.getElementById('ollama-status-text');
+    const text  = document.getElementById('ollama-status-text');
     const guide = document.getElementById('install-guide');
+    const next1 = document.getElementById('next1');
     if (msg.running) {
+      installedModels = msg.models || [];
       text.innerHTML = '<span style="color:var(--green)">✓ Ollama is running</span>'
-        + (msg.models.length ? '<br><span style="opacity:.6; font-size:11px">Installed: ' + msg.models.join(', ') + '</span>' : '');
+        + (installedModels.length ? '<br><span style="opacity:.6; font-size:11px">Installed: ' + installedModels.join(', ') + '</span>' : '');
       text.style.opacity = '1';
       guide.style.display = 'none';
+      next1.disabled = false;
     } else {
+      installedModels = [];
       text.innerHTML = '<span style="color:var(--amber)">✗ Ollama not found</span><br><span style="opacity:.6">See installation instructions below</span>';
       text.style.opacity = '1';
       guide.style.display = 'block';
+      next1.disabled = true;
     }
   }
 
@@ -366,9 +372,15 @@ export class OnboardingPanel {
   }
 
   function doInstall() {
-    vscode.postMessage({ command: 'installModel', modelId: selectedModel });
-    vscode.postMessage({ command: 'saveModel',    modelId: selectedModel });
+    const alreadyInstalled = installedModels.includes(selectedModel);
+    if (!alreadyInstalled) {
+      vscode.postMessage({ command: 'installModel', modelId: selectedModel });
+    }
     goStep(4);
+    if (alreadyInstalled) {
+      document.querySelector('#step4 .sub').textContent = 'Model is already installed — you can start right now.';
+      document.getElementById('step4-download-info').style.display = 'none';
+    }
   }
 
   function finishSetup() {
