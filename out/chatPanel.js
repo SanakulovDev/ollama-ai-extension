@@ -54,6 +54,7 @@ class ChatViewProvider {
         setTimeout(() => {
             void this._postSessionState();
             void this._postModelState();
+            this._post({ command: 'restoreSkill', skill: this._skill });
         }, 100);
         webviewView.webview.onDidReceiveMessage(async (msg) => {
             switch (msg.command) {
@@ -76,6 +77,12 @@ class ChatViewProvider {
                     break;
                 case 'pickFiles':
                     await this._handlePickFiles();
+                    break;
+                case 'deleteModel':
+                    await this._handleDeleteModel(msg.modelId);
+                    break;
+                case 'pullModel':
+                    this._handlePullModel(msg.modelId);
                     break;
                 case 'newSession':
                     await this._handleNewSession();
@@ -123,6 +130,7 @@ class ChatViewProvider {
             if (session) {
                 this._history = session.messages;
                 this._currentSessionId = activeId;
+                this._skill = session.skill ?? 'code';
                 return;
             }
         }
@@ -131,6 +139,7 @@ class ChatViewProvider {
         await this._sessionManager.setActiveSessionId(newSession.id);
         this._currentSessionId = newSession.id;
         this._history = [];
+        this._skill = 'code';
     }
     _getSystemMessage() {
         switch (this._skill) {
@@ -150,7 +159,11 @@ class ChatViewProvider {
         }
         let prompt;
         if (this._skill === 'code') {
-            prompt = (0, fileContext_1.buildPrompt)(userText, (0, fileContext_1.getActiveFileContext)(this._getContextLines()), attachedPaths.length > 0 ? (0, fileContext_1.buildMultiFileContext)(this._dedupePaths(attachedPaths)) : '');
+            const explicitExtra = attachedPaths.length > 0
+                ? (0, fileContext_1.buildMultiFileContext)(this._dedupePaths(attachedPaths))
+                : '';
+            const openTabsExtra = !explicitExtra ? (0, fileContext_1.getOpenEditorsContext)() : '';
+            prompt = (0, fileContext_1.buildPrompt)(userText, (0, fileContext_1.getActiveFileContext)(this._getContextLines()), explicitExtra || openTabsExtra);
         }
         else {
             const extra = attachedPaths.length > 0
@@ -232,8 +245,10 @@ class ChatViewProvider {
         }
         this._history = session.messages;
         this._currentSessionId = sessionId;
+        this._skill = session.skill ?? 'code';
         await this._sessionManager.setActiveSessionId(sessionId);
         this._post({ command: 'loadSession', messages: session.messages });
+        this._post({ command: 'restoreSkill', skill: this._skill });
         await this._postSessionState();
     }
     async _handleDeleteSession(sessionId) {
@@ -336,8 +351,11 @@ class ChatViewProvider {
         }
         session.messages = this._history;
         session.lastModifiedAt = Date.now();
+        session.skill = this._skill;
         if (!session.name || session.name.startsWith('Chat ') || session.name.startsWith('Suhbat ')) {
-            session.name = this._sessionManager.generateSessionName(this._history);
+            const baseName = this._sessionManager.generateSessionName(this._history);
+            const prefix = this._skill !== 'code' ? `[${this._skill[0].toUpperCase()}${this._skill.slice(1)}] ` : '';
+            session.name = prefix + baseName;
         }
         await this._sessionManager.saveSession(session);
     }
@@ -388,7 +406,10 @@ class ChatViewProvider {
                 .filter(file => {
                 const rel = file.relativePath.toLowerCase();
                 const name = file.name.toLowerCase();
-                return rel.includes(normalizedQuery) || name.includes(normalizedQuery);
+                return rel.includes(normalizedQuery)
+                    || name.includes(normalizedQuery)
+                    || this._fuzzyMatch(normalizedQuery, name)
+                    || this._fuzzyMatch(normalizedQuery, rel);
             })
                 .sort((left, right) => {
                 const score = this._scoreWorkspaceFileMatch(normalizedQuery, left) - this._scoreWorkspaceFileMatch(normalizedQuery, right);
@@ -419,7 +440,23 @@ class ChatViewProvider {
         if (rel.includes(query)) {
             return 4;
         }
-        return 5;
+        // Fuzzy: all query chars appear in order in the name
+        if (this._fuzzyMatch(query, name)) {
+            return 5;
+        }
+        if (this._fuzzyMatch(query, rel)) {
+            return 6;
+        }
+        return 7;
+    }
+    _fuzzyMatch(query, target) {
+        let qi = 0;
+        for (let i = 0; i < target.length && qi < query.length; i++) {
+            if (target[i] === query[qi]) {
+                qi++;
+            }
+        }
+        return qi === query.length;
     }
     _toRelativePath(uri) {
         const relative = vscode.workspace.asRelativePath(uri, false);
@@ -459,6 +496,32 @@ class ChatViewProvider {
             .replace(/\\/g, '/')
             .replace(/^\.\//, '');
         return normalized || null;
+    }
+    async _handleDeleteModel(modelId) {
+        if (!modelId) {
+            return;
+        }
+        const choice = await vscode.window.showWarningMessage(`Delete model "${modelId}"? This will remove it from Ollama.`, { modal: true }, 'Delete', 'Cancel');
+        if (choice !== 'Delete') {
+            return;
+        }
+        try {
+            await this._client.deleteModel(modelId);
+            vscode.window.showInformationMessage(`Model ${modelId} deleted.`);
+            await this._postModelState();
+        }
+        catch {
+            vscode.window.showErrorMessage(`Failed to delete model ${modelId}.`);
+        }
+    }
+    _handlePullModel(modelId) {
+        const id = modelId?.trim();
+        if (!id) {
+            return;
+        }
+        const terminal = vscode.window.createTerminal({ name: `Ollama: pull ${id}` });
+        terminal.show();
+        terminal.sendText(`ollama pull ${id}`);
     }
     _post(message) {
         this._view?.webview.postMessage(message);
@@ -674,11 +737,60 @@ class ChatViewProvider {
   }
 
   .msg-bot pre {
+    position: relative;
     background: rgba(0, 0, 0, 0.32);
     padding: 10px;
     border-radius: 10px;
     overflow-x: auto;
     margin: 8px 0;
+  }
+
+  .pre-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 10px;
+    margin-bottom: -2px;
+    background: rgba(255,255,255,0.04);
+    border-radius: 10px 10px 0 0;
+    font-size: 10px;
+    color: var(--muted);
+  }
+
+  .copy-btn {
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 4px;
+  }
+
+  .copy-btn:hover { background: rgba(255,255,255,0.08); color: var(--fg); }
+  .copy-btn.copied { color: var(--success); }
+
+  .msg-bot ul, .msg-bot ol {
+    padding-left: 20px;
+    margin: 6px 0;
+  }
+
+  .msg-bot li { margin: 3px 0; }
+
+  .msg-bot h1, .msg-bot h2, .msg-bot h3 {
+    font-weight: 600;
+    margin: 10px 0 4px;
+    line-height: 1.3;
+  }
+
+  .msg-bot h1 { font-size: 15px; }
+  .msg-bot h2 { font-size: 13px; }
+  .msg-bot h3 { font-size: 12px; }
+
+  .msg-bot hr {
+    border: none;
+    border-top: 1px solid rgba(255,255,255,0.1);
+    margin: 10px 0;
   }
 
   .code-file-label {
@@ -875,6 +987,42 @@ class ChatViewProvider {
     flex: 1;
   }
 
+  #model-manager {
+    display: none;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px;
+    border-top: 1px solid var(--border);
+  }
+
+  #model-manager.open { display: flex; }
+
+  .model-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.06);
+  }
+
+  .model-row-name { flex: 1; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .model-pull-row { display: flex; gap: 6px; }
+  .model-pull-row input {
+    flex: 1;
+    background: var(--input);
+    color: var(--fg);
+    border: 1px solid var(--input-border);
+    border-radius: 8px;
+    padding: 6px 10px;
+    font: inherit;
+    font-size: 12px;
+    outline: none;
+  }
+  .model-pull-row input:focus { border-color: var(--accent); }
+
   #skill-tabs {
     display: flex;
     gap: 2px;
@@ -934,9 +1082,18 @@ class ChatViewProvider {
       <div class="composer-top">
         <select id="model-select" class="input grow" onchange="setModel(this.value)"></select>
         <button class="btn btn-secondary btn-icon" onclick="refreshModels()" title="Refresh models">↻</button>
+        <button class="btn btn-secondary btn-icon" onclick="toggleModelManager()" title="Manage models" id="btn-manage">⋮</button>
         <div class="composer-actions">
           <button class="btn btn-secondary btn-icon" onclick="openMentionPicker()" title="Mention a workspace file">@</button>
           <button class="btn btn-secondary btn-icon" onclick="pickFiles()" title="Attach files">+</button>
+        </div>
+      </div>
+
+      <div id="model-manager">
+        <div id="model-manager-list"></div>
+        <div class="model-pull-row">
+          <input id="pull-input" placeholder="Model name, e.g. llama3.2:3b" />
+          <button class="btn btn-secondary" onclick="pullModel()">Pull</button>
         </div>
       </div>
 
@@ -1073,10 +1230,16 @@ class ChatViewProvider {
     if (message.command === 'workspaceFilesResult') {
       showAutocomplete(message.files || []);
     }
+
+    if (message.command === 'restoreSkill') {
+      setSkill(message.skill || 'code');
+    }
   });
 
   function renderModels(models, selectedModel, isRunning, configuredModelUnavailable) {
     const installedModels = Array.from(new Set((models || []).filter(Boolean)));
+    _installedModels = installedModels.slice();
+    renderModelManager();
     const renderableModels = [...installedModels];
 
     if (configuredModelUnavailable && selectedModel) {
@@ -1120,6 +1283,41 @@ class ChatViewProvider {
 
   function refreshModels() {
     vscode.postMessage({ command: 'refreshModels' });
+  }
+
+  let _installedModels = [];
+
+  function toggleModelManager() {
+    const mgr = document.getElementById('model-manager');
+    mgr.classList.toggle('open');
+  }
+
+  function renderModelManager() {
+    const list = document.getElementById('model-manager-list');
+    if (!list) { return; }
+    if (!_installedModels.length) {
+      list.innerHTML = '<div style="font-size:11px;opacity:.5;padding:2px 0">No models installed</div>';
+      return;
+    }
+    list.innerHTML = _installedModels.map(function(m) {
+      return '<div class="model-row">'
+        + '<span class="model-row-name">' + escapeHtml(m) + '</span>'
+        + '<button class="btn btn-secondary" style="font-size:11px;padding:4px 8px" onclick="deleteModel(\'' + escapeHtml(m) + '\')">Delete</button>'
+        + '</div>';
+    }).join('');
+  }
+
+  function deleteModel(modelId) {
+    vscode.postMessage({ command: 'deleteModel', modelId });
+  }
+
+  function pullModel() {
+    const input = document.getElementById('pull-input');
+    const id = (input.value || '').trim();
+    if (!id) { return; }
+    vscode.postMessage({ command: 'pullModel', modelId: id });
+    input.value = '';
+    document.getElementById('model-manager').classList.remove('open');
   }
 
   function renderSessionList() {
@@ -1534,19 +1732,72 @@ class ChatViewProvider {
       .replace(/'/g, '&#39;');
   }
 
+  let _copyIdCounter = 0;
+
   function formatMarkdown(text) {
-    const safe = escapeHtml(text);
-    return safe
-      .replace(/\\\`\\\`\\\`([^\\n\\\`]*)\\n?([\\s\\S]*?)\\\`\\\`\\\`/g, (_, info, code) => {
-        const header = String(info || '').trim();
-        const fileLabel = header.startsWith('file:')
-          ? '<div class="code-file-label">' + header.slice(5).trim() + '</div>'
-          : '';
-        return fileLabel + '<pre><code>' + code + '</code></pre>';
-      })
-      .replace(/\\\`([^\\\`]+)\\\`/g, '<code>$1</code>')
-      .replace(/\\*\\*(.+?)\\*\\*/g, '<strong>$1</strong>')
-      .replace(/\\n/g, '<br>');
+    const codeBlocks = [];
+    // Extract code blocks before escaping
+    let processed = text.replace(/\`\`\`([^\n\`]*)\n?([\s\S]*?)\`\`\`/g, function(_, info, code) {
+      const lang = String(info || '').trim();
+      const isFile = lang.startsWith('file:');
+      const label = isFile ? lang.slice(5).trim() : lang;
+      const id = 'cb' + (++_copyIdCounter);
+      const header = '<div class="pre-header"><span>' + escapeHtml(label) + '</span>'
+        + '<button class="copy-btn" id="' + id + '" onclick="copyCode(\\'' + id + '\\')">Copy</button></div>';
+      const fileTag = isFile ? '<div class="code-file-label">' + escapeHtml(label) + '</div>' : '';
+      const block = fileTag + header + '<pre><code>' + escapeHtml(code) + '</code></pre>';
+      codeBlocks.push(block);
+      return '\x00CODE' + (codeBlocks.length - 1) + '\x00';
+    });
+
+    processed = escapeHtml(processed);
+
+    // Inline code
+    processed = processed.replace(/\`([^\`]+)\`/g, '<code>$1</code>');
+
+    // Headings
+    processed = processed.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+    processed = processed.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+    processed = processed.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+
+    // Bold / italic
+    processed = processed.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    processed = processed.replace(/\*(.+?)\*/g, '<em>$1</em>');
+
+    // HR
+    processed = processed.replace(/^---$/gm, '<hr>');
+
+    // Unordered lists
+    processed = processed.replace(/((?:^[-*] .+(?:\n|$))+)/gm, function(match) {
+      const items = match.trim().split('\n').map(function(l) { return '<li>' + l.replace(/^[-*] /, '') + '</li>'; }).join('');
+      return '<ul>' + items + '</ul>';
+    });
+
+    // Ordered lists
+    processed = processed.replace(/((?:^\d+\. .+(?:\n|$))+)/gm, function(match) {
+      const items = match.trim().split('\n').map(function(l) { return '<li>' + l.replace(/^\d+\. /, '') + '</li>'; }).join('');
+      return '<ol>' + items + '</ol>';
+    });
+
+    processed = processed.replace(/\n/g, '<br>');
+
+    // Re-insert code blocks
+    processed = processed.replace(/\x00CODE(\d+)\x00/g, function(_, i) { return codeBlocks[+i]; });
+
+    return processed;
+  }
+
+  function copyCode(id) {
+    const btn = document.getElementById(id);
+    if (!btn) { return; }
+    const pre = btn.closest && btn.closest('.pre-header') && btn.closest('.pre-header').nextElementSibling;
+    const code = pre && pre.querySelector('code');
+    if (!code) { return; }
+    navigator.clipboard.writeText(code.textContent || '').then(function() {
+      btn.textContent = 'Copied!';
+      btn.classList.add('copied');
+      setTimeout(function() { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1800);
+    });
   }
 
   autoResizeInput();

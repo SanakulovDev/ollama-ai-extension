@@ -160,6 +160,30 @@ export class OllamaClient {
     });
   }
 
+  /** Delete an installed model */
+  async deleteModel(modelId: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const url  = new URL(this.host + '/api/delete');
+      const lib  = url.protocol === 'https:' ? https : http;
+      const data = JSON.stringify({ name: modelId });
+
+      const req = lib.request(
+        { hostname: url.hostname, port: url.port || (url.protocol === 'https:' ? 443 : 80),
+          path: url.pathname, method: 'DELETE',
+          headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) }
+        },
+        res => {
+          res.on('data', () => {});
+          res.on('end',  resolve);
+          res.on('error', reject);
+        }
+      );
+      req.on('error', reject);
+      req.write(data);
+      req.end();
+    });
+  }
+
   private fetchJson(path: string, method: 'GET' | 'POST', body?: object): Promise<any> {
     return new Promise((resolve, reject) => {
       const url  = new URL(this.host + path);

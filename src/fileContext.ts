@@ -146,6 +146,43 @@ function findRelatedFiles(filePath: string): string[] {
   }
 }
 
+/**
+ * Returns a combined context string from other open editor tabs (max 3, max 20k chars each).
+ * Excludes the active file to avoid duplication.
+ */
+export function getOpenEditorsContext(maxFiles = 3, maxCharsEach = 20_000): string {
+  const activeUri = vscode.window.activeTextEditor?.document.uri.fsPath;
+  const CODE_EXTENSIONS = new Set([
+    '.ts', '.js', '.tsx', '.jsx', '.py', '.java', '.go', '.rs',
+    '.c', '.cpp', '.h', '.cs', '.rb', '.php', '.swift', '.kt',
+    '.html', '.css', '.scss', '.json', '.yaml', '.yml', '.md'
+  ]);
+
+  const docs = vscode.workspace.textDocuments
+    .filter(doc => {
+      if (doc.uri.scheme !== 'file') { return false; }
+      if (doc.uri.fsPath === activeUri) { return false; }
+      if (doc.isUntitled) { return false; }
+      const ext = path.extname(doc.uri.fsPath);
+      return CODE_EXTENSIONS.has(ext);
+    })
+    .slice(0, maxFiles);
+
+  if (!docs.length) { return ''; }
+
+  const blocks = docs.map(doc => {
+    let content = doc.getText();
+    if (content.length > maxCharsEach) {
+      content = content.slice(0, maxCharsEach) + '\n// ... (truncated)';
+    }
+    const label = vscode.workspace.asRelativePath(doc.uri, false) || path.basename(doc.uri.fsPath);
+    const ext = path.extname(doc.uri.fsPath).slice(1);
+    return `**${label}**\n\`\`\`${ext}\n${content}\n\`\`\``;
+  });
+
+  return blocks.join('\n\n');
+}
+
 /** Build context from multiple files */
 export function buildMultiFileContext(filePaths: string[]): string {
   const blocks: string[] = [];
