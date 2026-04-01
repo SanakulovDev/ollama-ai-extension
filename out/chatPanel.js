@@ -44,6 +44,7 @@ class ChatViewProvider {
         this._sessionManager = _sessionManager;
         this._history = [];
         this._currentSessionId = null;
+        this._skill = 'code';
     }
     async resolveWebviewView(webviewView) {
         this._view = webviewView;
@@ -97,6 +98,11 @@ class ChatViewProvider {
                 case 'applyAssistantEdits':
                     await this._handleApplyAssistantEdits(msg.text);
                     break;
+                case 'setSkill':
+                    if (['code', 'chat', 'plan', 'editor'].includes(msg.skill)) {
+                        this._skill = msg.skill;
+                    }
+                    break;
             }
         });
     }
@@ -126,18 +132,43 @@ class ChatViewProvider {
         this._currentSessionId = newSession.id;
         this._history = [];
     }
+    _getSystemMessage() {
+        switch (this._skill) {
+            case 'chat':
+                return 'You are a helpful and knowledgeable AI assistant. Answer questions clearly and conversationally. Be concise but thorough.';
+            case 'plan':
+                return 'You are a software architect and technical lead. Help plan features, system design, and project structure. Use numbered steps, consider trade-offs, and give clear recommendations.';
+            case 'editor':
+                return 'You are an expert technical writer and editor. Help write, improve, and refine documentation, commit messages, comments, and any written content. Focus on clarity, conciseness, and quality.';
+            default:
+                return '';
+        }
+    }
     async _handleSend(userText, attachedPaths = []) {
         if (!userText.trim()) {
             return;
         }
-        const prompt = (0, fileContext_1.buildPrompt)(userText, (0, fileContext_1.getActiveFileContext)(this._getContextLines()), attachedPaths.length > 0 ? (0, fileContext_1.buildMultiFileContext)(this._dedupePaths(attachedPaths)) : '');
+        let prompt;
+        if (this._skill === 'code') {
+            prompt = (0, fileContext_1.buildPrompt)(userText, (0, fileContext_1.getActiveFileContext)(this._getContextLines()), attachedPaths.length > 0 ? (0, fileContext_1.buildMultiFileContext)(this._dedupePaths(attachedPaths)) : '');
+        }
+        else {
+            const extra = attachedPaths.length > 0
+                ? (0, fileContext_1.buildMultiFileContext)(this._dedupePaths(attachedPaths))
+                : '';
+            prompt = extra ? `${userText}\n\n**Attached files:**\n${extra}` : userText;
+        }
         this._history.push({ role: 'user', content: prompt });
         this._post({ command: 'userMsg', text: userText });
         this._post({ command: 'thinking' });
         this._abortController = new AbortController();
         let fullResponse = '';
+        const systemMsg = this._getSystemMessage();
+        const apiMessages = systemMsg
+            ? [{ role: 'system', content: systemMsg }, ...this._history]
+            : [...this._history];
         try {
-            await this._client.chatStream(this._getModel(), this._history, chunk => {
+            await this._client.chatStream(this._getModel(), apiMessages, chunk => {
                 fullResponse += chunk;
                 this._post({ command: 'streamChunk', chunk });
             }, this._abortController.signal, { temperature: this._getTemperature() });
@@ -843,6 +874,36 @@ class ChatViewProvider {
   .grow {
     flex: 1;
   }
+
+  #skill-tabs {
+    display: flex;
+    gap: 2px;
+    padding: 8px 10px 0;
+  }
+
+  .skill-tab {
+    flex: 1;
+    padding: 5px 4px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 500;
+    transition: color 0.15s, background 0.15s, border-color 0.15s;
+  }
+
+  .skill-tab:hover {
+    color: var(--fg);
+    background: rgba(255, 255, 255, 0.05);
+  }
+
+  .skill-tab.active {
+    color: var(--accent-fg);
+    background: var(--accent);
+    border-color: transparent;
+  }
 </style>
 </head>
 <body>
@@ -863,6 +924,12 @@ class ChatViewProvider {
     </section>
 
     <section id="composer" class="panel">
+      <div id="skill-tabs">
+        <button class="skill-tab active" data-skill="code" onclick="setSkill('code')">Code</button>
+        <button class="skill-tab" data-skill="chat" onclick="setSkill('chat')">Chat</button>
+        <button class="skill-tab" data-skill="plan" onclick="setSkill('plan')">Plan</button>
+        <button class="skill-tab" data-skill="editor" onclick="setSkill('editor')">Editor</button>
+      </div>
       <div id="attached-files"></div>
       <div class="composer-top">
         <select id="model-select" class="input grow" onchange="setModel(this.value)"></select>
@@ -1299,6 +1366,32 @@ class ChatViewProvider {
 
   function stop() {
     vscode.postMessage({ command: 'stop' });
+  }
+
+  const SKILL_PLACEHOLDERS = {
+    code:   'Ask about the codebase or mention files with @...',
+    chat:   'Ask anything — questions, explanations, ideas...',
+    plan:   'Describe a feature or system you want to plan...',
+    editor: 'Paste text or describe what to write or edit...',
+  };
+
+  const SKILL_EMPTY = {
+    code:   'Ask a question or mention a file with <code>@src/file.ts</code>.<br>The current file context is added automatically.',
+    chat:   'Start a conversation. Ask questions, get explanations, or brainstorm ideas.',
+    plan:   'Describe what you want to build or plan. The assistant will help structure the approach.',
+    editor: 'Paste text to improve or describe what you need written.',
+  };
+
+  function setSkill(skill) {
+    vscode.postMessage({ command: 'setSkill', skill });
+    document.querySelectorAll('.skill-tab').forEach(tab => {
+      tab.classList.toggle('active', tab.dataset.skill === skill);
+    });
+    input.placeholder = SKILL_PLACEHOLDERS[skill] || SKILL_PLACEHOLDERS.code;
+    const emptyEl = document.getElementById('empty-state');
+    if (emptyEl) {
+      emptyEl.innerHTML = SKILL_EMPTY[skill] || SKILL_EMPTY.code;
+    }
   }
 
   function pickFiles() {
