@@ -32,7 +32,7 @@
     },
     "views": {
       "ollama-sidebar": [
-        { "type": "webview", "id": "ollamaAI.chatView", "name": "AI Chat" }
+        { "type": "webview", "id": "ollamaAI.chatView", "name": "AI Chat", "icon": "$(hubot)" }
       ]
     },
     "configuration": {
