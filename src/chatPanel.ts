@@ -659,94 +659,55 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   .status-dot {
-    width: 7px;
-    height: 7px;
+    width: 6px;
+    height: 6px;
     border-radius: 999px;
     background: var(--warning);
-    box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.12);
+    flex-shrink: 0;
   }
 
   .status-dot.online {
     background: var(--success);
-    box-shadow: 0 0 0 4px rgba(74, 222, 128, 0.12);
   }
 
   #topbar {
-    padding: 10px;
+    padding: 8px 10px;
   }
 
   .control-row {
     display: flex;
-    gap: 8px;
+    gap: 6px;
     align-items: center;
   }
 
-  .status-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    color: var(--muted);
-    font-size: 11px;
-  }
+  select, textarea, button { font: inherit; }
 
-  select,
-  textarea,
-  button {
-    font: inherit;
-  }
-
-  .input,
-  textarea {
+  .input {
     width: 100%;
     background: var(--input);
     color: var(--fg);
     border: 1px solid var(--input-border);
-    border-radius: 10px;
+    border-radius: 8px;
     outline: none;
+    padding: 7px 10px;
   }
 
-  .input {
-    padding: 8px 10px;
-  }
-
-  .input:focus,
-  textarea:focus {
-    border-color: var(--accent);
-  }
+  .input:focus { border-color: var(--accent); }
 
   .btn {
     border: 1px solid transparent;
     border-radius: 8px;
-    padding: 8px 10px;
+    padding: 7px 10px;
     cursor: pointer;
-    transition: background 0.15s ease, border-color 0.15s ease;
+    transition: background 0.15s, opacity 0.15s;
   }
 
-  .btn-primary {
-    background: var(--accent);
-    color: var(--accent-fg);
-  }
-
-  .btn-secondary {
-    background: rgba(255, 255, 255, 0.04);
-    border-color: rgba(255, 255, 255, 0.08);
-    color: var(--fg);
-  }
-
-  .btn-danger {
-    background: rgba(248, 113, 113, 0.12);
-    border-color: rgba(248, 113, 113, 0.18);
-    color: var(--danger);
-  }
-
-  .btn-icon {
-    width: 36px;
-    height: 36px;
-    padding: 0;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-  }
+  .btn-primary  { background: var(--accent); color: var(--accent-fg); }
+  .btn-primary:hover { opacity: 0.85; }
+  .btn-secondary { background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.08); color: var(--fg); }
+  .btn-secondary:hover { background: rgba(255,255,255,0.09); }
+  .btn-danger   { background: rgba(248,113,113,0.12); border-color: rgba(248,113,113,0.18); color: var(--danger); }
+  .btn-icon { width: 34px; height: 34px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
 
   #msgs {
     position: relative;
@@ -940,6 +901,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     display: none;
     flex-wrap: wrap;
     gap: 6px;
+    padding: 0 12px;
   }
 
   .file-tag {
@@ -972,16 +934,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     color: var(--danger);
   }
 
-  .composer-top {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .composer-actions {
-    display: flex;
-    gap: 6px;
-  }
+  /* composer-top kept for model-manager compat */
+  .composer-top { display: none; }
+  .composer-actions { display: none; }
 
   #autocomplete-dropdown {
     display: none;
@@ -1024,37 +979,106 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     color: var(--muted);
   }
 
-  textarea {
-    resize: none;
-    min-height: 76px;
-    max-height: 180px;
-    padding: 10px 12px;
-    line-height: 1.5;
-  }
-
-  .composer-input-row {
-    display: flex;
-    gap: 8px;
-  }
-
-  .composer-input-row textarea {
-    width: auto;
-    flex: 1;
-  }
-
-  .composer-submit {
-    width: 92px;
-    display: flex;
-  }
-
-  .composer-submit .btn {
+  textarea#input {
+    display: block;
     width: 100%;
-    min-height: 76px;
+    resize: none;
+    min-height: 60px;
+    max-height: 160px;
+    padding: 10px 12px;
+    line-height: 1.55;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--fg);
+    box-sizing: border-box;
   }
 
-  .grow {
-    flex: 1;
+  #composer-footer {
+    display: flex;
+    align-items: center;
+    padding: 0 8px 8px;
+    gap: 2px;
   }
+
+  .footer-btn {
+    width: 28px;
+    height: 28px;
+    border: none;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    transition: background 0.12s, color 0.12s;
+    flex-shrink: 0;
+  }
+
+  .footer-btn:hover { background: rgba(255,255,255,0.07); color: var(--fg); }
+
+  #footer-model {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 0 6px;
+    min-width: 0;
+  }
+
+  #footer-model-select {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    font: inherit;
+    font-size: 11px;
+    cursor: pointer;
+    outline: none;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  #footer-model-select:hover { color: var(--fg); }
+  #footer-model-select option { background: var(--panel); }
+
+  #btn-send {
+    width: 30px;
+    height: 30px;
+    border: none;
+    border-radius: 50%;
+    background: var(--accent);
+    color: var(--accent-fg);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 15px;
+    flex-shrink: 0;
+    transition: opacity 0.12s, transform 0.1s;
+  }
+
+  #btn-send:hover { opacity: 0.85; transform: scale(1.05); }
+
+  #btn-stop {
+    width: 30px;
+    height: 30px;
+    border: none;
+    border-radius: 50%;
+    background: rgba(248,113,113,0.15);
+    color: var(--danger);
+    cursor: pointer;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    flex-shrink: 0;
+  }
+
+  .grow { flex: 1; }
 
   #model-manager {
     display: none;
@@ -1094,32 +1118,32 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
   #skill-tabs {
     display: flex;
-    gap: 2px;
-    padding: 8px 10px 0;
+    gap: 4px;
+    padding: 10px 12px 8px;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
   }
 
   .skill-tab {
-    flex: 1;
-    padding: 5px 4px;
-    border: 1px solid transparent;
-    border-radius: 6px;
+    padding: 4px 11px;
+    border: none;
+    border-radius: 20px;
     background: transparent;
     color: var(--muted);
     cursor: pointer;
     font-size: 11px;
     font-weight: 500;
-    transition: color 0.15s, background 0.15s, border-color 0.15s;
+    transition: background 0.15s, color 0.15s;
+    white-space: nowrap;
   }
 
   .skill-tab:hover {
+    background: rgba(255,255,255,0.07);
     color: var(--fg);
-    background: rgba(255, 255, 255, 0.05);
   }
 
   .skill-tab.active {
-    color: var(--accent-fg);
-    background: var(--accent);
-    border-color: transparent;
+    background: var(--accent-soft);
+    color: var(--accent);
   }
 </style>
 </head>
@@ -1147,37 +1171,29 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         <button class="skill-tab" data-skill="plan" onclick="setSkill('plan')">Plan</button>
         <button class="skill-tab" data-skill="editor" onclick="setSkill('editor')">Editor</button>
       </div>
+
+      <div id="autocomplete-dropdown"></div>
       <div id="attached-files"></div>
-      <div class="composer-top">
-        <select id="model-select" class="input grow" onchange="setModel(this.value)"></select>
-        <button class="btn btn-secondary btn-icon" onclick="refreshModels()" title="Refresh models">↻</button>
-        <button class="btn btn-secondary btn-icon" onclick="toggleModelManager()" title="Manage models" id="btn-manage">⋮</button>
-        <div class="composer-actions">
-          <button class="btn btn-secondary btn-icon" onclick="openMentionPicker()" title="Mention a workspace file">@</button>
-          <button class="btn btn-secondary btn-icon" onclick="pickFiles()" title="Attach files">+</button>
+
+      <textarea id="input" placeholder="Ask about the codebase or mention files with @..." onkeydown="onKey(event)"></textarea>
+
+      <div id="composer-footer">
+        <button class="footer-btn" onclick="openMentionPicker()" title="Mention a file">@</button>
+        <button class="footer-btn" onclick="pickFiles()" title="Attach files">⊕</button>
+        <button class="footer-btn" onclick="toggleModelManager()" title="Manage models" id="btn-manage">⋮</button>
+        <div id="footer-model">
+          <span class="status-dot" id="model-status-dot"></span>
+          <select id="footer-model-select" onchange="setModel(this.value)" title="Active model"></select>
         </div>
+        <button id="btn-stop" onclick="stop()" title="Stop">■</button>
+        <button id="btn-send" onclick="send()" title="Send">↑</button>
       </div>
 
       <div id="model-manager">
         <div id="model-manager-list"></div>
         <div class="model-pull-row">
-          <input id="pull-input" placeholder="Model name, e.g. llama3.2:3b" />
+          <input id="pull-input" placeholder="e.g. llama3.2:3b" />
           <button class="btn btn-secondary" onclick="pullModel()">Pull</button>
-        </div>
-      </div>
-
-      <div class="status-row">
-        <span class="status-dot" id="model-status-dot"></span>
-        <span id="model-status-text">Checking Ollama...</span>
-      </div>
-
-      <div id="autocomplete-dropdown"></div>
-
-      <div class="composer-input-row">
-        <textarea id="input" placeholder="Ask about the codebase or mention files with @..." onkeydown="onKey(event)"></textarea>
-        <div class="composer-submit">
-          <button class="btn btn-danger" id="btn-stop" onclick="stop()" style="display:none">Stop</button>
-          <button class="btn btn-primary" id="btn-send" onclick="send()">Send</button>
         </div>
       </div>
     </section>
@@ -1189,7 +1205,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   const input = document.getElementById('input');
   const attachedFilesEl = document.getElementById('attached-files');
   const autocompleteEl = document.getElementById('autocomplete-dropdown');
-  const modelSelectEl = document.getElementById('model-select');
+  const modelSelectEl = document.getElementById('footer-model-select');
   const sessionSelectEl = document.getElementById('session-select');
 
   let botDiv = null;
@@ -1782,8 +1798,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   function setStreaming(isStreaming) {
-    document.getElementById('btn-send').style.display = isStreaming ? 'none' : 'inline-flex';
-    document.getElementById('btn-stop').style.display = isStreaming ? 'inline-flex' : 'none';
+    document.getElementById('btn-send').style.display = isStreaming ? 'none' : 'flex';
+    document.getElementById('btn-stop').style.display = isStreaming ? 'flex' : 'none';
     input.disabled = isStreaming;
   }
 
